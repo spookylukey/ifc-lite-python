@@ -60,9 +60,6 @@ jobs:
           args: --release --out dist --find-interpreter
           manylinux: auto
           rust-toolchain: stable
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.target }}
