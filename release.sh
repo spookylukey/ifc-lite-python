@@ -52,7 +52,7 @@ uv run pytest \
     || die "Tests failed — fix before releasing"
 
 info "Running pyright type checker …"
-pyright \
+pyright python \
     || die "Type checking failed — fix before releasing"
 
 
