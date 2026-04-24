@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "High-performance Python bindings for the ifc-lite IFC parser"
 readme = "README.md"
 license = "MPL-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -31,20 +31,20 @@ benchmark = [
 manifest-path = "rust/Cargo.toml"
 python-source = "python"
 module-name = "ifc_lite._ifc_lite"
-features = ["pyo3/extension-module"]
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 99
-target-version = "py39"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"

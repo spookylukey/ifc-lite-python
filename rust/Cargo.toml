@@ -10,4 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ifc-lite-engine = { path = "../vendor/ifc-lite/rust/engine" }
-pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py312"] }
