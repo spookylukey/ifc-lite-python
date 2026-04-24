@@ -50,3 +50,8 @@ venvPath = "."
 venv = ".venv"
 reportPrivateUsage = false
 reportMissingTypeStubs = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.409",
+]
