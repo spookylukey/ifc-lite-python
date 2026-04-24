@@ -87,4 +87,12 @@ echo "  1. Go to the workflow page."
 echo "  2. Click 'Run workflow', choose the 'main' branch."
 echo "  3. Click 'Run workflow' to start the build."
 echo
+echo "Note that the above requires Trusted Publishing to be set up in PyPI as a one time task:"
+echo "- Go to: https://pypi.org/manage/project/ifc-lite/settings/publishing/"
+echo "- Add a GitHub publisher:"
+echo "  - Owner: spooklyukey"
+echo "  - Repository name: ifc-lite-python"
+echo "  - Workflow name: release.yml"
+echo "  - Environment name: pypi"
+
 open_url "$RELEASE_WORKFLOW_URL"
