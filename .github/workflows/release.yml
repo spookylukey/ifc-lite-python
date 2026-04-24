@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_pypi:
+        description: "Upload wheels to PyPI after building?"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build-sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          rust-toolchain: stable
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  build-wheels:
+    name: Build wheels (${{ matrix.os }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64
+          # Linux aarch64
+          - os: ubuntu-latest
+            target: aarch64
+          # macOS x86_64
+          - os: macos-13
+            target: x86_64
+          # macOS Apple Silicon
+          - os: macos-14
+            target: aarch64
+          # Windows x86_64
+          - os: windows-latest
+            target: x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --find-interpreter
+          manylinux: auto
+          rust-toolchain: stable
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist/*.whl
+
+  publish:
+    name: Upload to PyPI
+    needs: [build-sdist, build-wheels]
+    runs-on: ubuntu-latest
+    if: ${{ inputs.upload_to_pypi }}
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

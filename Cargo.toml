@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "rust",
+    "vendor/ifc-lite/rust/core",
+    "vendor/ifc-lite/rust/engine",
+    "vendor/ifc-lite/rust/geometry",
+    "vendor/ifc-lite/rust/processing",
+]
+resolver = "2"
+
+[workspace.package]
+version = "2.1.9"
+edition = "2021"
+authors = ["IFC-Lite Contributors"]
+license = "MPL-2.0"
+repository = "https://github.com/louistrue/ifc-lite"
+
+[workspace.dependencies]
+ifc-lite-core = { version = "2.1.9", path = "vendor/ifc-lite/rust/core" }
+ifc-lite-engine = { version = "2.1.7", path = "vendor/ifc-lite/rust/engine" }
+ifc-lite-geometry = { version = "2.1.9", path = "vendor/ifc-lite/rust/geometry" }
+ifc-lite-processing = { version = "2.1.7", path = "vendor/ifc-lite/rust/processing" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build Packages
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+        continue-on-error: true
+
+      # Verify every publishable package can be loaded by Node's native ESM
+      # resolver. Catches broken relative imports (e.g. extensionless specifiers
+      # that bundlers tolerate but Node rejects with ERR_MODULE_NOT_FOUND)
+      # before they reach npm consumers. Must run BEFORE `pnpm run release`
+      # so a regression blocks the publish step.
+      - name: Verify ESM entrypoints
+        run: pnpm test:esm
+
+      - name: Run Tests
+        run: pnpm test
+
+      - name: Create Release Pull Request or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version
+          publish: pnpm run release
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Get Version
+        id: get-version
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          # Read the root release version (sync-versions.js keeps it aligned to the highest released workspace package version)
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          # Create the v* tag (changesets creates @scope/package@version tags, not v* tags)
+          git tag "v${{ steps.get-version.outputs.version }}" || true
+          git push origin "v${{ steps.get-version.outputs.version }}" || true
+          # Create release, skipping if it already exists
+          if gh release view "v${{ steps.get-version.outputs.version }}" > /dev/null 2>&1; then
+            echo "Release v${{ steps.get-version.outputs.version }} already exists, skipping"
+          else
+            gh release create "v${{ steps.get-version.outputs.version }}" \
+              --title "v${{ steps.get-version.outputs.version }}" \
+              --notes "See CHANGELOG.md for details"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Verify every published package is actually reachable on npm.
+  # Catches packages accidentally skipped during release before users hit them.
+  verify-npm-publish:
+    name: Verify npm publish
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify all packages on npm
+        # New packages can take longer to appear in npm metadata after publish.
+        # Retry for up to ~4 minutes before failing.
+        run: node scripts/verify-npm-publish.js --retries 12 --delay 20000

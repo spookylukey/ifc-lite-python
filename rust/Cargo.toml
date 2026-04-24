@@ -1,0 +1,13 @@
+[package]
+name = "ifc-lite-python"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+
+[lib]
+name = "_ifc_lite"
+crate-type = ["cdylib"]
+
+[dependencies]
+ifc-lite-engine = { path = "../vendor/ifc-lite/rust/engine" }
+pyo3 = { version = "0.24", features = ["extension-module"] }

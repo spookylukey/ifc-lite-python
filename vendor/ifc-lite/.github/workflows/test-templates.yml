@@ -1,0 +1,79 @@
+name: Test Templates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/create-ifc-lite/**'
+  pull_request:
+    paths:
+      - 'packages/create-ifc-lite/**'
+
+jobs:
+  test-templates:
+    name: Scaffold & verify (${{ matrix.template }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: basic
+            check_command: npx tsc --noEmit
+            build_command: npm run build
+          - template: threejs
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: babylonjs
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: react
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: server
+            check_command: npm run typecheck
+            build_command: npm run build
+          - template: server-native
+            check_command: npm run typecheck
+            build_command: npm run build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install monorepo deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build create-ifc-lite
+        run: pnpm --filter create-ifc-lite build
+
+      - name: Scaffold ${{ matrix.template }} template
+        run: |
+          mkdir -p /tmp/scaffold
+          cd /tmp/scaffold
+          node $GITHUB_WORKSPACE/packages/create-ifc-lite/dist/index.js \
+            test-${{ matrix.template }} --template ${{ matrix.template }}
+
+      - name: Install template deps (npm, as a real user would)
+        run: npm install --prefer-offline
+        working-directory: /tmp/scaffold/test-${{ matrix.template }}
+
+      - name: Type-check template
+        run: ${{ matrix.check_command }}
+        working-directory: /tmp/scaffold/test-${{ matrix.template }}
+
+      - name: Build template
+        run: ${{ matrix.build_command }}
+        working-directory: /tmp/scaffold/test-${{ matrix.template }}
