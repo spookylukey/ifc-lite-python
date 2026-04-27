@@ -2,6 +2,21 @@
 
 High-performance Python bindings for the [ifc-lite](https://github.com/louistrue/ifc-lite) IFC parser.
 
+
+## Relationship with upstream
+
+This Python version is not released or maintained by the original authors of
+ifc-lite. It is a modified version, released under the same licence.
+
+The Rust code is basically copied from upstream, but with some changes:
+
+- The `MeshData` object exposes `property_sets` as an attribute, and the Rust
+  code has been changed to populate this for all elements.
+
+These changes are based on the current needs of the maintainers, and are
+provisional, while we are still in the evaluation stage for this new library.
+
+
 ## Installation
 
 ```bash
