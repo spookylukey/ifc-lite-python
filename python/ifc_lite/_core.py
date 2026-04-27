@@ -98,7 +98,7 @@ class ProcessingStats:
     from_cache: bool
 
 
-@dataclass
+@dataclass(repr=False)
 class IfcModel:
     """High-level wrapper for a parsed IFC model.
 

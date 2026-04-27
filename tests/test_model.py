@@ -113,3 +113,10 @@ def test_from_text_with_filter(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     model = IfcModel.from_text(content, opening_filter=OpeningFilterMode.IGNORE_ALL)
     assert len(model.meshes) == 3
+
+
+def test_model_repr(small_ifc_path: Path) -> None:
+    content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
+    model = IfcModel.from_text(content, opening_filter=OpeningFilterMode.IGNORE_ALL)
+    assert len(repr(model)) < 100
+    
