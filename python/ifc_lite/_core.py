@@ -19,6 +19,22 @@ class OpeningFilterMode(enum.IntEnum):
 
 
 @dataclass
+class PropertyValue:
+    """A single property within a property set."""
+
+    name: str
+    value: str
+
+
+@dataclass
+class PropertySet:
+    """A named IFC property set containing multiple properties."""
+
+    name: str
+    properties: list[PropertyValue]
+
+
+@dataclass
 class MeshData:
     """A single mesh element extracted from an IFC file."""
 
@@ -34,10 +50,23 @@ class MeshData:
     material_name: str | None
     geometry_item_id: int | None
     properties: dict[str, str] | None
+    property_sets: list[PropertySet] | None
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> MeshData:
         """Construct a MeshData from a raw dict returned by the native layer."""
+        raw_psets = d.get("property_sets")
+        property_sets: list[PropertySet] | None = None
+        if raw_psets is not None:
+            property_sets = [
+                PropertySet(
+                    name=ps["name"],
+                    properties=[
+                        PropertyValue(name=p["name"], value=p["value"]) for p in ps["properties"]
+                    ],
+                )
+                for ps in raw_psets
+            ]
         return MeshData(
             express_id=d["express_id"],
             ifc_type=d["ifc_type"],
@@ -51,6 +80,7 @@ class MeshData:
             material_name=d.get("material_name"),
             geometry_item_id=d.get("geometry_item_id"),
             properties=d.get("properties"),
+            property_sets=property_sets,
         )
 
     @property

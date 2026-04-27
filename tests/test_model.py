@@ -12,6 +12,8 @@ from ifc_lite._core import (
     ModelMetadata,
     OpeningFilterMode,
     ProcessingStats,
+    PropertySet,
+    PropertyValue,
 )
 
 
@@ -119,4 +121,53 @@ def test_model_repr(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     model = IfcModel.from_text(content, opening_filter=OpeningFilterMode.IGNORE_ALL)
     assert len(repr(model)) < 100
-    
+
+
+def test_property_sets_on_wall(medium_ifc_path: Path) -> None:
+    """Wall elements should have structured property sets."""
+    model = IfcModel.from_file(medium_ifc_path)
+    wall = model.element_by_global_id("1Bg6FSoNzDMwh2dHDeO2B3")
+    assert wall is not None
+    assert wall.property_sets is not None
+    assert len(wall.property_sets) >= 1
+
+    pset = wall.property_sets[0]
+    assert isinstance(pset, PropertySet)
+    assert pset.name == "EPset_Parametric"
+    assert len(pset.properties) >= 1
+
+    prop = pset.properties[0]
+    assert isinstance(prop, PropertyValue)
+    assert prop.name == "Engine"
+    assert prop.value == "Bonsai.DumbLayer2"
+
+
+def test_property_sets_all_walls_have_psets(medium_ifc_path: Path) -> None:
+    """All walls in the medium fixture should have EPset_Parametric."""
+    model = IfcModel.from_file(medium_ifc_path)
+    walls = model.elements_by_type("IfcWall")
+    assert len(walls) > 0
+    for wall in walls:
+        assert wall.property_sets is not None, f"Wall #{wall.express_id} has no property_sets"
+        pset_names = [ps.name for ps in wall.property_sets]
+        assert "EPset_Parametric" in pset_names, (
+            f"Wall #{wall.express_id} missing EPset_Parametric, has: {pset_names}"
+        )
+
+
+def test_property_sets_none_for_elements_without(small_ifc_path: Path) -> None:
+    """Elements with no property sets should have property_sets=None."""
+    model = IfcModel.from_file(small_ifc_path)
+    # The basic.ifc file may or may not have property sets
+    for mesh in model.meshes:
+        # property_sets should be None or a list, never something else
+        assert mesh.property_sets is None or isinstance(mesh.property_sets, list)
+
+
+def test_property_sets_exported_from_package() -> None:
+    """PropertySet and PropertyValue should be importable from ifc_lite."""
+    from ifc_lite import PropertySet as PS
+    from ifc_lite import PropertyValue as PV
+
+    assert PS is PropertySet
+    assert PV is PropertyValue

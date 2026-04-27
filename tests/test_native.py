@@ -82,3 +82,23 @@ def test_stats_fields(small_ifc_path: Path) -> None:
     assert stats["total_vertices"] > 0
     assert stats["total_triangles"] > 0
     assert isinstance(stats["total_time_ms"], int)
+
+
+def test_property_sets_in_native_output(medium_ifc_path: Path) -> None:
+    """Native output should include property_sets for elements that have them."""
+    result = _native.process_file(str(medium_ifc_path))
+    # Find wall #143 (global_id 1Bg6FSoNzDMwh2dHDeO2B3)
+    wall = next(
+        (m for m in result["meshes"] if m.get("global_id") == "1Bg6FSoNzDMwh2dHDeO2B3"),
+        None,
+    )
+    assert wall is not None
+    psets: list[dict[str, object]] = wall["property_sets"]  # type: ignore[assignment]
+    assert isinstance(psets, list)
+    assert len(psets) >= 1
+    first_pset = psets[0]
+    assert first_pset["name"] == "EPset_Parametric"
+    first_props: list[dict[str, str]] = first_pset["properties"]  # type: ignore[assignment]
+    assert len(first_props) >= 1
+    assert first_props[0]["name"] == "Engine"
+    assert first_props[0]["value"] == "Bonsai.DumbLayer2"

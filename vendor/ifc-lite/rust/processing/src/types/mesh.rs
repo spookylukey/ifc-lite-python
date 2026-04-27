@@ -7,6 +7,24 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// A single property within a property set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertyValue {
+    /// Property name.
+    pub name: String,
+    /// Property value as a string.
+    pub value: String,
+}
+
+/// A named property set containing multiple properties.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertySet {
+    /// Property set name (e.g., "Pset_WallCommon").
+    pub name: String,
+    /// Properties within this set.
+    pub properties: Vec<PropertyValue>,
+}
+
 /// Individual mesh data with geometry and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshData {
@@ -41,6 +59,10 @@ pub struct MeshData {
     /// Primarily attached for IfcSpace/IfcZone so downstream tools can build room attribute UIs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, String>>,
+    /// Structured property sets preserving the IFC property set grouping.
+    /// Contains all property sets for this element (both occurrence and type).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property_sets: Option<Vec<PropertySet>>,
 }
 
 impl MeshData {
@@ -66,6 +88,7 @@ impl MeshData {
             material_name: None,
             geometry_item_id: None,
             properties: None,
+            property_sets: None,
         }
     }
 
@@ -96,6 +119,12 @@ impl MeshData {
     /// Attach optional IFC property set values.
     pub fn with_properties(mut self, properties: Option<BTreeMap<String, String>>) -> Self {
         self.properties = properties;
+        self
+    }
+
+    /// Attach structured IFC property sets.
+    pub fn with_property_sets(mut self, property_sets: Option<Vec<PropertySet>>) -> Self {
+        self.property_sets = property_sets;
         self
     }
 

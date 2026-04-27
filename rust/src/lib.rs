@@ -35,6 +35,32 @@ fn mesh_to_pydict(py: Python<'_>, m: &MeshData) -> PyResult<Py<PyDict>> {
             d.set_item("properties", py.None())?;
         }
     }
+    match &m.property_sets {
+        Some(psets) => {
+            let py_psets = PyList::new(
+                py,
+                psets.iter().map(|pset| {
+                    let pd = PyDict::new(py);
+                    pd.set_item("name", &pset.name).unwrap();
+                    let props = PyList::new(
+                        py,
+                        pset.properties.iter().map(|prop| {
+                            let p = PyDict::new(py);
+                            p.set_item("name", &prop.name).unwrap();
+                            p.set_item("value", &prop.value).unwrap();
+                            p
+                        }).collect::<Vec<_>>(),
+                    ).unwrap();
+                    pd.set_item("properties", props).unwrap();
+                    pd
+                }).collect::<Vec<_>>(),
+            )?;
+            d.set_item("property_sets", py_psets)?;
+        }
+        None => {
+            d.set_item("property_sets", py.None())?;
+        }
+    }
     Ok(d.into())
 }
 
