@@ -102,3 +102,44 @@ def test_property_sets_in_native_output(medium_ifc_path: Path) -> None:
     assert len(first_props) >= 1
     assert first_props[0]["name"] == "Engine"
     assert first_props[0]["value"] == "Bonsai.DumbLayer2"
+
+
+def test_process_file_no_geometry(small_ifc_path: Path) -> None:
+    result = _native.process_file(str(small_ifc_path), include_geometry=False)
+    assert len(result["meshes"]) >= 3
+    for mesh in result["meshes"]:
+        assert mesh["positions"] == []
+        assert mesh["normals"] == []
+        assert mesh["indices"] == []
+        assert isinstance(mesh["express_id"], int)
+        assert isinstance(mesh["ifc_type"], str)
+
+
+def test_process_text_no_geometry(small_ifc_path: Path) -> None:
+    content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
+    result = _native.process_text(content, include_geometry=False)
+    assert len(result["meshes"]) >= 3
+    for mesh in result["meshes"]:
+        assert mesh["positions"] == []
+
+
+def test_process_file_no_properties(medium_ifc_path: Path) -> None:
+    result = _native.process_file(str(medium_ifc_path), include_properties=False)
+    for mesh in result["meshes"]:
+        assert mesh["properties"] is None
+        assert mesh["property_sets"] is None
+
+
+def test_process_text_filtered_no_geometry(small_ifc_path: Path) -> None:
+    content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
+    result = _native.process_text_filtered(content, 0, include_geometry=False)
+    assert len(result["meshes"]) >= 3
+    for mesh in result["meshes"]:
+        assert mesh["positions"] == []
+
+
+def test_process_text_filtered_no_properties(medium_ifc_path: Path) -> None:
+    content = medium_ifc_path.read_text(encoding="utf-8", errors="replace")
+    result = _native.process_text_filtered(content, 0, include_properties=False)
+    for mesh in result["meshes"]:
+        assert mesh["property_sets"] is None

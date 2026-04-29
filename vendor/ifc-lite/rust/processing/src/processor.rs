@@ -76,6 +76,10 @@ pub struct StreamingOptions {
     pub emit_quick_metadata_bootstrap: bool,
     /// Retain emitted meshes in the returned ProcessingResult.
     pub retain_emitted_meshes: bool,
+    /// Include full geometry extraction. When false, emit MeshData with empty
+    /// geometry but populated metadata (express_id, ifc_type, global_id, name,
+    /// presentation_layer, properties, property_sets).
+    pub include_geometry: bool,
 }
 
 impl Default for StreamingOptions {
@@ -88,6 +92,7 @@ impl Default for StreamingOptions {
             include_presentation_layers: true,
             emit_quick_metadata_bootstrap: false,
             retain_emitted_meshes: true,
+            include_geometry: true,
         }
     }
 }
@@ -1094,14 +1099,18 @@ pub fn process_geometry_streaming_filtered_with_options(
     }
     let lookup_time = lookup_start.elapsed();
 
-    let (skipped_entity_ids, filtered_void_index) = apply_opening_filter(
-        &entity_jobs,
-        &void_index,
-        &filling_by_opening,
-        &geometry_style_index,
-        &mut decoder,
-        opening_filter,
-    );
+    let (skipped_entity_ids, filtered_void_index) = if options.include_geometry {
+        apply_opening_filter(
+            &entity_jobs,
+            &void_index,
+            &filling_by_opening,
+            &geometry_style_index,
+            &mut decoder,
+            opening_filter,
+        )
+    } else {
+        (HashSet::default(), FxHashMap::default())
+    };
 
     // Detect schema version
     if content.contains("IFC4X3") {
@@ -1214,7 +1223,8 @@ pub fn process_geometry_streaming_filtered_with_options(
     };
     let has_rtc_offset = coord_space != RAW_IFC_MESH_COORDINATE_SPACE;
     router.set_rtc_offset(rtc_offset);
-    let should_preprocess_faceted_breps = !faceted_brep_ids.is_empty()
+    let should_preprocess_faceted_breps = options.include_geometry
+        && !faceted_brep_ids.is_empty()
         && !(options.fast_first_batch && options.initial_batch_size < usize::MAX);
     if should_preprocess_faceted_breps {
         tracing::debug!(count = faceted_brep_ids.len(), "Preprocessing FacetedBreps");
@@ -1340,22 +1350,50 @@ pub fn process_geometry_streaming_filtered_with_options(
             } else {
                 None
             };
-        let chunk_meshes: Vec<MeshData> = jobs_chunk
-            .par_iter()
-            .flat_map_iter(|job| {
-                process_entity_job(
-                    job,
-                    content,
-                    &entity_index_arc,
-                    unit_scale,
-                    rtc_offset,
-                    void_index_arc.as_ref(),
-                    skipped_entity_ids.as_ref(),
-                    geometry_style_index.as_ref(),
-                    site_local_rotation,
-                )
-            })
-            .collect();
+        let chunk_meshes: Vec<MeshData> = if options.include_geometry {
+            jobs_chunk
+                .par_iter()
+                .flat_map_iter(|job| {
+                    process_entity_job(
+                        job,
+                        content,
+                        &entity_index_arc,
+                        unit_scale,
+                        rtc_offset,
+                        void_index_arc.as_ref(),
+                        skipped_entity_ids.as_ref(),
+                        geometry_style_index.as_ref(),
+                        site_local_rotation,
+                    )
+                })
+                .collect()
+        } else {
+            jobs_chunk
+                .iter()
+                .map(|job| {
+                    let mut mesh = MeshData::new(
+                        job.id,
+                        job.ifc_type.to_string(),
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                        [0.8, 0.8, 0.8, 1.0],
+                    );
+                    mesh = mesh.with_element_metadata(
+                        job.global_id.clone(),
+                        job.name.clone(),
+                        job.presentation_layer.clone(),
+                    );
+                    if let Some(ref props) = job.space_zone_properties {
+                        mesh = mesh.with_properties(Some(props.clone()));
+                    }
+                    if let Some(ref psets) = job.element_property_sets {
+                        mesh = mesh.with_property_sets(Some(psets.clone()));
+                    }
+                    mesh
+                })
+                .collect()
+        };
 
         processed_jobs += jobs_chunk.len();
         total_vertices += chunk_meshes.iter().map(|m| m.vertex_count()).sum::<usize>();

@@ -171,3 +171,159 @@ def test_property_sets_exported_from_package() -> None:
 
     assert PS is PropertySet
     assert PV is PropertyValue
+
+
+# -- load_geometry=False tests --------------------------------------------------
+
+
+def test_load_geometry_false_from_file(small_ifc_path: Path) -> None:
+    """load_geometry=False should return elements with empty geometry.
+
+    Note: more elements may appear than with load_geometry=True because
+    entities whose geometry turns out to be empty (e.g. IfcSite,
+    IfcElementAssembly) are normally filtered out during extraction but
+    are included when geometry is skipped.
+    """
+    model = IfcModel.from_file(small_ifc_path, load_geometry=False)
+    # At least the 3 real geometry elements, possibly more
+    assert len(model.meshes) >= 3
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+        assert mesh.triangle_count == 0
+        assert mesh.positions == []
+        assert mesh.normals == []
+        assert mesh.indices == []
+
+
+def test_load_geometry_false_preserves_metadata(small_ifc_path: Path) -> None:
+    """Metadata should still be populated when geometry is skipped."""
+    model = IfcModel.from_file(small_ifc_path, load_geometry=False)
+    # Should include at least the 3 real element types
+    for expected_type in ["IfcBeam", "IfcSlab", "IfcWall"]:
+        assert expected_type in model.ifc_types
+    for mesh in model.meshes:
+        assert mesh.express_id > 0
+        assert mesh.ifc_type != ""
+        assert mesh.global_id is not None
+        assert mesh.name is not None
+
+
+def test_load_geometry_false_from_text(small_ifc_path: Path) -> None:
+    content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
+    model = IfcModel.from_text(content, load_geometry=False)
+    assert len(model.meshes) >= 3
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+
+
+def test_load_geometry_false_with_opening_filter(small_ifc_path: Path) -> None:
+    model = IfcModel.from_file(
+        small_ifc_path,
+        opening_filter=OpeningFilterMode.IGNORE_ALL,
+        load_geometry=False,
+    )
+    assert len(model.meshes) >= 3
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+
+
+def test_load_geometry_false_preserves_properties(medium_ifc_path: Path) -> None:
+    """Property sets should still be populated when geometry is skipped."""
+    model = IfcModel.from_file(medium_ifc_path, load_geometry=False)
+    wall = model.element_by_global_id("1Bg6FSoNzDMwh2dHDeO2B3")
+    assert wall is not None
+    assert wall.vertex_count == 0
+    assert wall.property_sets is not None
+    assert len(wall.property_sets) >= 1
+    pset_names = [ps.name for ps in wall.property_sets]
+    assert "EPset_Parametric" in pset_names
+
+
+def test_convenience_process_file_load_geometry_false(small_ifc_path: Path) -> None:
+    model = ifc_lite.process_file(small_ifc_path, load_geometry=False)
+    assert len(model.meshes) >= 3
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+
+
+def test_convenience_process_text_load_geometry_false(small_ifc_path: Path) -> None:
+    content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
+    model = ifc_lite.process_text(content, load_geometry=False)
+    assert len(model.meshes) >= 3
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+
+
+# -- load_properties=False tests ------------------------------------------------
+
+
+def test_load_properties_false_from_file(medium_ifc_path: Path) -> None:
+    """load_properties=False should return elements with no property sets."""
+    model = IfcModel.from_file(medium_ifc_path, load_properties=False)
+    assert len(model.meshes) > 0
+    for mesh in model.meshes:
+        assert mesh.properties is None
+        assert mesh.property_sets is None
+
+
+def test_load_properties_false_preserves_geometry(medium_ifc_path: Path) -> None:
+    """Geometry should still be populated when properties are skipped."""
+    model = IfcModel.from_file(medium_ifc_path, load_properties=False)
+    walls = model.elements_by_type("IfcWall")
+    assert len(walls) > 0
+    for wall in walls:
+        assert wall.vertex_count > 0
+        assert wall.triangle_count > 0
+
+
+def test_load_properties_false_from_text(medium_ifc_path: Path) -> None:
+    content = medium_ifc_path.read_text(encoding="utf-8", errors="replace")
+    model = IfcModel.from_text(content, load_properties=False)
+    for mesh in model.meshes:
+        assert mesh.property_sets is None
+
+
+def test_load_properties_false_with_opening_filter(medium_ifc_path: Path) -> None:
+    model = IfcModel.from_file(
+        medium_ifc_path,
+        opening_filter=OpeningFilterMode.IGNORE_ALL,
+        load_properties=False,
+    )
+    for mesh in model.meshes:
+        assert mesh.property_sets is None
+
+
+def test_convenience_process_file_load_properties_false(medium_ifc_path: Path) -> None:
+    model = ifc_lite.process_file(medium_ifc_path, load_properties=False)
+    for mesh in model.meshes:
+        assert mesh.property_sets is None
+
+
+# -- Combined load_geometry=False + load_properties=False ----------------------
+
+
+def test_load_both_false(medium_ifc_path: Path) -> None:
+    """Both flags False should give metadata-only elements."""
+    model = IfcModel.from_file(
+        medium_ifc_path,
+        load_geometry=False,
+        load_properties=False,
+    )
+    assert len(model.meshes) > 0
+    for mesh in model.meshes:
+        assert mesh.vertex_count == 0
+        assert mesh.property_sets is None
+        assert mesh.express_id > 0
+        assert mesh.ifc_type != ""
+
+
+def test_load_both_false_still_has_metadata(medium_ifc_path: Path) -> None:
+    model = IfcModel.from_file(
+        medium_ifc_path,
+        load_geometry=False,
+        load_properties=False,
+    )
+    assert isinstance(model.metadata, ModelMetadata)
+    assert model.metadata.schema_version == "IFC4"
+    assert model.metadata.entity_count > 0
+    assert isinstance(model.stats, ProcessingStats)

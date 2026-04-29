@@ -165,13 +165,33 @@ class IfcModel:
         path: str | Path,
         *,
         opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
+        load_geometry: bool = True,
+        load_properties: bool = True,
     ) -> IfcModel:
-        """Load and process an IFC file from disk."""
+        """Load and process an IFC file from disk.
+
+        Args:
+            path: Path to the IFC file.
+            opening_filter: How to handle openings/voids in geometry.
+            load_geometry: If False, skip geometry extraction. MeshData elements
+                will have empty positions/normals/indices but full metadata.
+            load_properties: If False, skip property set parsing. MeshData
+                elements will have properties=None and property_sets=None.
+        """
         if opening_filter == OpeningFilterMode.DEFAULT:
-            raw = _native.process_file(str(path))
+            raw = _native.process_file(
+                str(path),
+                include_properties=load_properties,
+                include_geometry=load_geometry,
+            )
         else:
             content = Path(path).read_text(encoding="utf-8", errors="replace")
-            raw = _native.process_text_filtered(content, int(opening_filter))
+            raw = _native.process_text_filtered(
+                content,
+                int(opening_filter),
+                include_properties=load_properties,
+                include_geometry=load_geometry,
+            )
         return cls._from_raw(raw)
 
     @classmethod
@@ -180,12 +200,32 @@ class IfcModel:
         content: str,
         *,
         opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
+        load_geometry: bool = True,
+        load_properties: bool = True,
     ) -> IfcModel:
-        """Load and process IFC content from a string."""
+        """Load and process IFC content from a string.
+
+        Args:
+            content: IFC file content as a string.
+            opening_filter: How to handle openings/voids in geometry.
+            load_geometry: If False, skip geometry extraction. MeshData elements
+                will have empty positions/normals/indices but full metadata.
+            load_properties: If False, skip property set parsing. MeshData
+                elements will have properties=None and property_sets=None.
+        """
         if opening_filter == OpeningFilterMode.DEFAULT:
-            raw = _native.process_text(content)
+            raw = _native.process_text(
+                content,
+                include_properties=load_properties,
+                include_geometry=load_geometry,
+            )
         else:
-            raw = _native.process_text_filtered(content, int(opening_filter))
+            raw = _native.process_text_filtered(
+                content,
+                int(opening_filter),
+                include_properties=load_properties,
+                include_geometry=load_geometry,
+            )
         return cls._from_raw(raw)
 
     # -- queries -------------------------------------------------------------
@@ -260,18 +300,32 @@ def process_file(
     path: str | Path,
     *,
     opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
+    load_geometry: bool = True,
+    load_properties: bool = True,
 ) -> IfcModel:
     """Load and process an IFC file. Convenience alias for IfcModel.from_file."""
-    return IfcModel.from_file(path, opening_filter=opening_filter)
+    return IfcModel.from_file(
+        path,
+        opening_filter=opening_filter,
+        load_geometry=load_geometry,
+        load_properties=load_properties,
+    )
 
 
 def process_text(
     content: str,
     *,
     opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
+    load_geometry: bool = True,
+    load_properties: bool = True,
 ) -> IfcModel:
     """Process IFC text content. Convenience alias for IfcModel.from_text."""
-    return IfcModel.from_text(content, opening_filter=opening_filter)
+    return IfcModel.from_text(
+        content,
+        opening_filter=opening_filter,
+        load_geometry=load_geometry,
+        load_properties=load_properties,
+    )
 
 
 def version() -> str:

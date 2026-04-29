@@ -12,6 +12,12 @@ The Rust code is basically copied from upstream, but with some changes:
 
 - The `MeshData` object exposes `property_sets` as an attribute, and the Rust
   code has been changed to populate this for all elements.
+- Added `include_geometry` option to `StreamingOptions` in the processing
+  crate. When `false`, geometry extraction is skipped and `MeshData` objects
+  are returned with empty geometry but fully populated metadata.
+- Added `process_ifc_text_with_options` and `process_ifc_file_with_options` to
+  the engine crate for non-streaming use with `include_properties` and
+  `include_geometry` flags.
 
 These changes are based on the current needs of the maintainers, and are
 provisional, while we are still in the evaluation stage for this new library.
@@ -46,15 +52,30 @@ for mesh in model.meshes:
     normals = mesh.normals      # flat list of nx,ny,nz triplets
     indices = mesh.indices      # triangle indices
     color = mesh.color          # RGBA tuple
+
+# Load metadata + properties only (skip expensive geometry extraction)
+model = ifc_lite.process_file("building.ifc", load_geometry=False)
+
+# Load geometry only (skip property set parsing)
+model = ifc_lite.process_file("building.ifc", load_properties=False)
+
+# Fastest: metadata only (no geometry, no properties)
+model = ifc_lite.process_file(
+    "building.ifc", load_geometry=False, load_properties=False
+)
 ```
 
 ## API
 
 ### Module-level functions
 
-- `ifc_lite.process_file(path)` – Load and process an IFC file from disk
-- `ifc_lite.process_text(content)` – Process IFC content from a string
+- `ifc_lite.process_file(path, *, load_geometry=True, load_properties=True)` – Load and process an IFC file from disk
+- `ifc_lite.process_text(content, *, load_geometry=True, load_properties=True)` – Process IFC content from a string
 - `ifc_lite.version()` – Get the native library version
+
+Optional keyword arguments:
+- `load_geometry` – When `False`, skip geometry extraction. `MeshData` elements will have empty `positions`/`normals`/`indices` but full metadata. Significantly faster for large files.
+- `load_properties` – When `False`, skip property set parsing. `MeshData` elements will have `properties=None` and `property_sets=None`.
 
 ### IfcModel
 

@@ -8,7 +8,9 @@
 //! without needing to know about WASM bindings or Tauri command shapes.
 
 use ifc_lite_processing::{
-    process_geometry, process_geometry_filtered, process_geometry_streaming_with_options_and_bootstrap,
+    process_geometry, process_geometry_filtered,
+    process_geometry_streaming_filtered_with_options,
+    process_geometry_streaming_with_options_and_bootstrap,
     CoordinateInfo, ModelMetadata, ProcessingResult, ProcessingStats,
     StreamingOptions as ProcessingStreamingOptions,
 };
@@ -33,6 +35,9 @@ pub struct StreamOptions {
     pub emit_quick_metadata_bootstrap: bool,
     /// Retain emitted meshes in the returned EngineResult.
     pub retain_emitted_meshes: bool,
+    /// Include full geometry extraction. When false, emit MeshData with empty
+    /// geometry but populated metadata.
+    pub include_geometry: bool,
 }
 
 impl Default for StreamOptions {
@@ -45,6 +50,7 @@ impl Default for StreamOptions {
             include_presentation_layers: true,
             emit_quick_metadata_bootstrap: false,
             retain_emitted_meshes: true,
+            include_geometry: true,
         }
     }
 }
@@ -115,6 +121,48 @@ pub fn process_ifc_file(path: impl AsRef<Path>) -> io::Result<EngineResult> {
     Ok(process_ifc_text(content))
 }
 
+/// Process UTF-8 IFC text with an opening filter and processing options.
+pub fn process_ifc_text_with_options(
+    content: &str,
+    opening_filter: OpeningFilterMode,
+    include_properties: bool,
+    include_geometry: bool,
+) -> EngineResult {
+    process_geometry_streaming_filtered_with_options(
+        content,
+        opening_filter,
+        ProcessingStreamingOptions {
+            initial_batch_size: usize::MAX,
+            throughput_batch_size: usize::MAX,
+            include_properties,
+            include_geometry,
+            ..ProcessingStreamingOptions::default()
+        },
+        |_, _, _| {},
+        |_| {},
+        |_| {},
+    )
+    .into()
+}
+
+/// Process an IFC file from disk with an opening filter and processing options.
+pub fn process_ifc_file_with_options(
+    path: impl AsRef<Path>,
+    opening_filter: OpeningFilterMode,
+    include_properties: bool,
+    include_geometry: bool,
+) -> io::Result<EngineResult> {
+    let mmap = map_ifc_file(path.as_ref())?;
+    let content = std::str::from_utf8(&mmap)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    Ok(process_ifc_text_with_options(
+        content,
+        opening_filter,
+        include_properties,
+        include_geometry,
+    ))
+}
+
 /// Process IFC bytes with a configurable opening filter.
 pub fn process_ifc_bytes_filtered(
     buffer: &[u8],
@@ -151,6 +199,7 @@ pub fn stream_ifc_text_with_bootstrap(
             include_presentation_layers: options.include_presentation_layers,
             emit_quick_metadata_bootstrap: options.emit_quick_metadata_bootstrap,
             retain_emitted_meshes: options.retain_emitted_meshes,
+            include_geometry: options.include_geometry,
         },
         |meshes, processed, total| {
         on_chunk(GeometryChunk {

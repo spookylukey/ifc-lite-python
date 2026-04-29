@@ -1,7 +1,8 @@
 // Python bindings for ifc-lite using PyO3
 
 use ifc_lite_engine::{
-    process_ifc_file, process_ifc_text, process_ifc_text_filtered,
+    process_ifc_file, process_ifc_file_with_options, process_ifc_text,
+    process_ifc_text_with_options,
     EngineResult, MeshData, OpeningFilterMode,
 };
 use pyo3::exceptions::PyIOError;
@@ -117,25 +118,59 @@ fn result_to_pydict(py: Python<'_>, r: &EngineResult) -> PyResult<Py<PyDict>> {
 
 /// Process an IFC file from disk. Returns a dict with meshes, metadata, stats.
 #[pyfunction]
-fn process_file(py: Python<'_>, path: &str) -> PyResult<Py<PyDict>> {
-    let result = process_ifc_file(path).map_err(|e| PyIOError::new_err(e.to_string()))?;
+#[pyo3(signature = (path, /, include_properties=true, include_geometry=true))]
+fn process_file(
+    py: Python<'_>,
+    path: &str,
+    include_properties: bool,
+    include_geometry: bool,
+) -> PyResult<Py<PyDict>> {
+    let result = if include_properties && include_geometry {
+        process_ifc_file(path).map_err(|e| PyIOError::new_err(e.to_string()))?
+    } else {
+        process_ifc_file_with_options(
+            path,
+            OpeningFilterMode::Default,
+            include_properties,
+            include_geometry,
+        )
+        .map_err(|e| PyIOError::new_err(e.to_string()))?
+    };
     result_to_pydict(py, &result)
 }
 
 /// Process IFC content from a string. Returns a dict with meshes, metadata, stats.
 #[pyfunction]
-fn process_text(py: Python<'_>, content: &str) -> PyResult<Py<PyDict>> {
-    let result = process_ifc_text(content);
+#[pyo3(signature = (content, /, include_properties=true, include_geometry=true))]
+fn process_text(
+    py: Python<'_>,
+    content: &str,
+    include_properties: bool,
+    include_geometry: bool,
+) -> PyResult<Py<PyDict>> {
+    let result = if include_properties && include_geometry {
+        process_ifc_text(content)
+    } else {
+        process_ifc_text_with_options(
+            content,
+            OpeningFilterMode::Default,
+            include_properties,
+            include_geometry,
+        )
+    };
     result_to_pydict(py, &result)
 }
 
 /// Process IFC content with an opening filter mode.
 /// filter_mode: 0 = Default, 1 = IgnoreAll, 2 = IgnoreOpaque
 #[pyfunction]
+#[pyo3(signature = (content, filter_mode, /, include_properties=true, include_geometry=true))]
 fn process_text_filtered(
     py: Python<'_>,
     content: &str,
     filter_mode: u8,
+    include_properties: bool,
+    include_geometry: bool,
 ) -> PyResult<Py<PyDict>> {
     let mode = match filter_mode {
         0 => OpeningFilterMode::Default,
@@ -147,7 +182,12 @@ fn process_text_filtered(
             ))
         }
     };
-    let result = process_ifc_text_filtered(content, mode);
+    let result = process_ifc_text_with_options(
+        content,
+        mode,
+        include_properties,
+        include_geometry,
+    );
     result_to_pydict(py, &result)
 }
 
