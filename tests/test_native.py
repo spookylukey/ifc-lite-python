@@ -20,21 +20,21 @@ def test_process_file(small_ifc_path: Path) -> None:
     assert "meshes" in result
     assert "metadata" in result
     assert "stats" in result
-    assert len(result["meshes"]) == 3
+    assert len(result["meshes"]) == 5  # 3 instances + 2 type-products
 
 
 def test_process_text(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     result = _native.process_text(content)
     assert isinstance(result, dict)
-    assert len(result["meshes"]) == 3
+    assert len(result["meshes"]) == 5  # 3 instances + 2 type-products
 
 
 def test_process_text_filtered(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     result = _native.process_text_filtered(content, 0)
     assert isinstance(result, dict)
-    assert len(result["meshes"]) == 3
+    assert len(result["meshes"]) == 5  # 3 instances + 2 type-products
 
 
 def test_process_text_filtered_invalid_mode(small_ifc_path: Path) -> None:
@@ -78,7 +78,7 @@ def test_metadata_fields(small_ifc_path: Path) -> None:
 def test_stats_fields(small_ifc_path: Path) -> None:
     result = _native.process_file(str(small_ifc_path))
     stats = result["stats"]
-    assert stats["total_meshes"] == 3
+    assert stats["total_meshes"] == 5  # 3 instances + 2 type-products
     assert stats["total_vertices"] > 0
     assert stats["total_triangles"] > 0
     assert isinstance(stats["total_time_ms"], int)

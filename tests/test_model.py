@@ -24,24 +24,30 @@ def test_version() -> None:
 def test_from_file(small_ifc_path: Path) -> None:
     model = IfcModel.from_file(small_ifc_path)
     assert isinstance(model, IfcModel)
-    assert len(model.meshes) == 3
+    assert len(model.meshes) == 5  # 3 instances + 2 type-products
     assert isinstance(model.meshes[0], MeshData)
 
 
 def test_from_text(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     model = IfcModel.from_text(content)
-    assert len(model.meshes) == 3
+    assert len(model.meshes) == 5  # 3 instances + 2 type-products
 
 
 def test_from_file_with_filter(small_ifc_path: Path) -> None:
     model = IfcModel.from_file(small_ifc_path, opening_filter=OpeningFilterMode.IGNORE_ALL)
-    assert len(model.meshes) == 3  # no openings in this file anyway
+    assert len(model.meshes) == 5  # no openings in this file anyway
 
 
 def test_ifc_types(small_ifc_path: Path) -> None:
     model = IfcModel.from_file(small_ifc_path)
-    assert sorted(model.ifc_types) == ["IfcBeam", "IfcSlab", "IfcWall"]
+    assert sorted(model.ifc_types) == [
+        "IfcBeam",
+        "IfcSlab",
+        "IfcSlabType",
+        "IfcWall",
+        "IfcWallType",
+    ]
 
 
 def test_elements_by_type(small_ifc_path: Path) -> None:
@@ -90,18 +96,18 @@ def test_metadata(small_ifc_path: Path) -> None:
 def test_stats(small_ifc_path: Path) -> None:
     model = IfcModel.from_file(small_ifc_path)
     assert isinstance(model.stats, ProcessingStats)
-    assert model.stats.total_meshes == 3
+    assert model.stats.total_meshes == 5
     assert model.stats.total_vertices > 0
 
 
 def test_convenience_functions(small_ifc_path: Path) -> None:
     model = ifc_lite.process_file(small_ifc_path)
     assert isinstance(model, IfcModel)
-    assert len(model.meshes) == 3
+    assert len(model.meshes) == 5
 
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     model2 = ifc_lite.process_text(content)
-    assert len(model2.meshes) == 3
+    assert len(model2.meshes) == 5
 
 
 def test_medium_file(medium_ifc_path: Path) -> None:
@@ -114,7 +120,7 @@ def test_medium_file(medium_ifc_path: Path) -> None:
 def test_from_text_with_filter(small_ifc_path: Path) -> None:
     content = small_ifc_path.read_text(encoding="utf-8", errors="replace")
     model = IfcModel.from_text(content, opening_filter=OpeningFilterMode.IGNORE_ALL)
-    assert len(model.meshes) == 3
+    assert len(model.meshes) == 5
 
 
 def test_model_repr(small_ifc_path: Path) -> None:
