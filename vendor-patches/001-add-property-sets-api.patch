@@ -1,5 +1,36 @@
+diff --git a/rust/processing/src/element.rs b/rust/processing/src/element.rs
+index d3982e0..b71e784 100644
+--- a/rust/processing/src/element.rs
++++ b/rust/processing/src/element.rs
+@@ -35,7 +35,7 @@
+ //! ```
+ 
+ use crate::style::{FullIndexedColourMap, GeometryStyleInfo};
+-use crate::types::mesh::{MeshData, MeshTextureData};
++use crate::types::mesh::{MeshData, MeshTextureData, PropertySet};
+ use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
+ use ifc_lite_geometry::{
+     calculate_normals, orient_mesh_outward, BoolFailure, GeometryHasher, GeometryRouter, Mesh,
+@@ -55,6 +55,7 @@ pub struct ElementMeshMetadata {
+     pub name: Option<String>,
+     pub presentation_layer: Option<String>,
+     pub space_zone_properties: Option<BTreeMap<String, String>>,
++    pub element_property_sets: Option<Vec<PropertySet>>,
+ }
+ 
+ /// What the job renders.
+@@ -600,7 +601,8 @@ fn build_mesh_data(
+                 meta.name.clone(),
+                 meta.presentation_layer.clone(),
+             )
+-            .with_properties(meta.space_zone_properties.clone());
++            .with_properties(meta.space_zone_properties.clone())
++            .with_property_sets(meta.element_property_sets.clone());
+     }
+     if material_name.is_some() || geometry_item_id.is_some() {
+         mesh_data = mesh_data.with_style_metadata(material_name, geometry_item_id);
 diff --git a/rust/processing/src/processor.rs b/rust/processing/src/processor.rs
-index d2777e2..e3e4bba 100644
+index e32b4ab..1993ec9 100644
 --- a/rust/processing/src/processor.rs
 +++ b/rust/processing/src/processor.rs
 @@ -6,7 +6,7 @@
@@ -11,15 +42,15 @@ index d2777e2..e3e4bba 100644
  use crate::types::response::{
      CoordinateInfo, ModelMetadata, ProcessingStats, QuickMetadataBootstrap,
      QuickMetadataEntitySummary, QuickMetadataSpatialNode,
-@@ -177,6 +177,7 @@ struct EntityJob {
+@@ -243,6 +243,7 @@ struct EntityJob {
      name: Option<String>,
      presentation_layer: Option<String>,
      space_zone_properties: Option<BTreeMap<String, String>>,
 +    element_property_sets: Option<Vec<PropertySet>>,
- }
- 
- fn populate_entity_job_metadata(
-@@ -496,6 +497,79 @@ fn assign_space_zone_properties(
+     /// Set for synthetic type-only-geometry jobs (#957): the `IfcRepresentationMap`
+     /// id to render directly (baking its MappingOrigin) instead of walking the
+     /// element's `IfcProductDefinitionShape`. `None` for ordinary product jobs.
+@@ -572,6 +573,79 @@ fn assign_space_zone_properties(
      }
  }
  
@@ -99,15 +130,23 @@ index d2777e2..e3e4bba 100644
  #[derive(Clone)]
  struct QuickSpatialNodeEntry {
      express_id: u32,
-@@ -991,6 +1065,7 @@ pub fn process_geometry_streaming_filtered_with_options(
+@@ -1129,6 +1203,7 @@ pub fn process_geometry_streaming_filtered_with_options(
                  name: None,
                  presentation_layer: None,
                  space_zone_properties: None,
 +                element_property_sets: None,
+                 representation_map_id: None,
              });
          }
-     }
-@@ -1005,6 +1080,12 @@ pub fn process_geometry_streaming_filtered_with_options(
+@@ -1200,6 +1275,7 @@ pub fn process_geometry_streaming_filtered_with_options(
+                 name: None,
+                 presentation_layer: None,
+                 space_zone_properties: None,
++                element_property_sets: None,
+                 representation_map_id: Some(rep_map_id),
+             });
+         }
+@@ -1238,6 +1314,12 @@ pub fn process_geometry_streaming_filtered_with_options(
              &property_sets_by_id,
              &rel_defines_by_properties,
          );
@@ -120,37 +159,19 @@ index d2777e2..e3e4bba 100644
      }
      if options.fast_first_batch {
          entity_jobs.sort_by(|left, right| {
-@@ -1394,6 +1475,7 @@ fn process_entity_job(
-     let name = job.name.clone();
-     let presentation_layer = job.presentation_layer.clone();
-     let space_zone_properties = job.space_zone_properties.clone();
-+    let element_property_sets = job.element_property_sets.clone();
-     let element_color = job.element_color;
- 
-     if is_opening_with_subparts(&job.ifc_type) {
-@@ -1430,6 +1512,7 @@ fn process_entity_job(
-                     )
-                     .with_element_metadata(global_id.clone(), name.clone(), presentation_layer.clone())
-                     .with_properties(space_zone_properties.clone())
-+                    .with_property_sets(element_property_sets.clone())
-                     .with_style_metadata(material_name, Some(sub.geometry_id));
-                     convert_mesh_to_site_local(&mut mesh_data, site_local_rotation);
-                     out.push(mesh_data);
-@@ -1468,7 +1551,8 @@ fn process_entity_job(
-                 element_color,
-             )
-             .with_element_metadata(global_id, name, presentation_layer)
--            .with_properties(space_zone_properties);
-+            .with_properties(space_zone_properties)
-+            .with_property_sets(element_property_sets);
-             convert_mesh_to_site_local(&mut mesh_data, site_local_rotation);
-             return vec![mesh_data];
-         }
+@@ -1802,6 +1884,7 @@ fn process_entity_job(
+         name: job.name.clone(),
+         presentation_layer: job.presentation_layer.clone(),
+         space_zone_properties: job.space_zone_properties.clone(),
++        element_property_sets: job.element_property_sets.clone(),
+     };
+     // #957: the scan loop plans type geometry with `SuppressInstanced` (see
+     // `plan_type_geometry`), so a synthetic job's map always renders as an
 diff --git a/rust/processing/src/types/mesh.rs b/rust/processing/src/types/mesh.rs
-index 9c7fc9f..b2c5925 100644
+index 1578d93..2e348d5 100644
 --- a/rust/processing/src/types/mesh.rs
 +++ b/rust/processing/src/types/mesh.rs
-@@ -7,6 +7,24 @@
+@@ -8,6 +8,24 @@ use ifc_lite_geometry::InstanceMeta;
  use serde::{Deserialize, Serialize};
  use std::collections::BTreeMap;
  
@@ -172,10 +193,10 @@ index 9c7fc9f..b2c5925 100644
 +    pub properties: Vec<PropertyValue>,
 +}
 +
- /// Individual mesh data with geometry and metadata.
- #[derive(Debug, Clone, Serialize, Deserialize)]
- pub struct MeshData {
-@@ -41,6 +59,10 @@ pub struct MeshData {
+ /// A decoded RGBA8 surface texture attached to a mesh (issue #961).
+ /// Decoded entirely in Rust (`IfcBlobTexture` PNG / `IfcPixelTexture` raw); the
+ /// browser only uploads `rgba` to a GPU texture — no image logic in TS.
+@@ -56,6 +74,10 @@ pub struct MeshData {
      /// Primarily attached for IfcSpace/IfcZone so downstream tools can build room attribute UIs.
      #[serde(skip_serializing_if = "Option::is_none")]
      pub properties: Option<BTreeMap<String, String>>,
@@ -183,18 +204,18 @@ index 9c7fc9f..b2c5925 100644
 +    /// Contains all property sets for this element (both occurrence and type).
 +    #[serde(skip_serializing_if = "Option::is_none")]
 +    pub property_sets: Option<Vec<PropertySet>>,
- }
- 
- impl MeshData {
-@@ -66,6 +88,7 @@ impl MeshData {
+     /// Per-vertex texture coordinates (u, v pairs, 1:1 with `positions`),
+     /// present only for textured meshes (issue #961).
+     #[serde(skip_serializing_if = "Option::is_none")]
+@@ -120,6 +142,7 @@ impl MeshData {
              material_name: None,
              geometry_item_id: None,
              properties: None,
 +            property_sets: None,
-         }
-     }
- 
-@@ -99,6 +122,12 @@ impl MeshData {
+             uvs: None,
+             texture: None,
+             geometry_class: 0,
+@@ -184,6 +207,12 @@ impl MeshData {
          self
      }
  
