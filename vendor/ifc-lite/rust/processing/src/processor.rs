@@ -109,6 +109,10 @@ pub struct StreamingOptions {
     /// (`symbolic.rs`) deliberately ignores the level — symbols are
     /// resolution-independent line work.
     pub tessellation_quality: TessellationQuality,
+    /// Include full geometry extraction. When false, emit MeshData with empty
+    /// geometry but populated metadata (express_id, ifc_type, global_id, name,
+    /// presentation_layer, properties, property_sets).
+    pub include_geometry: bool,
 }
 
 impl Default for StreamingOptions {
@@ -122,6 +126,7 @@ impl Default for StreamingOptions {
             emit_quick_metadata_bootstrap: false,
             retain_emitted_meshes: true,
             tessellation_quality: TessellationQuality::default(),
+            include_geometry: true,
         }
     }
 }
@@ -1328,14 +1333,18 @@ pub fn process_geometry_streaming_filtered_with_options(
     }
     let lookup_time = lookup_start.elapsed();
 
-    let (skipped_entity_ids, filtered_void_index) = apply_opening_filter(
-        &entity_jobs,
-        &void_index,
-        &filling_by_opening,
-        &geometry_style_index,
-        &mut decoder,
-        opening_filter,
-    );
+    let (skipped_entity_ids, filtered_void_index) = if options.include_geometry {
+        apply_opening_filter(
+            &entity_jobs,
+            &void_index,
+            &filling_by_opening,
+            &geometry_style_index,
+            &mut decoder,
+            opening_filter,
+        )
+    } else {
+        (HashSet::default(), FxHashMap::default())
+    };
 
     // Detect schema version
     if content
@@ -1679,29 +1688,57 @@ pub fn process_geometry_streaming_filtered_with_options(
             } else {
                 None
             };
-        let chunk_meshes: Vec<MeshData> = jobs_chunk
-            .par_iter()
-            .flat_map_iter(|job| {
-                process_entity_job(
-                    job,
-                    content,
-                    &entity_index_arc,
-                    unit_scale,
-                    rtc_offset,
-                    seed_plane_angle_to_radians,
-                    options.tessellation_quality,
-                    void_index_arc.as_ref(),
-                    skipped_entity_ids.as_ref(),
-                    geometry_style_index.as_ref(),
-                    indexed_colour_full.as_ref(),
-                    element_material_colors.as_ref(),
-                    texture_index.as_ref(),
-                    site_local_rotation,
-                    &csg_failure_collector,
-                    &item_dedup_cache,
-                )
-            })
-            .collect();
+        let chunk_meshes: Vec<MeshData> = if options.include_geometry {
+            jobs_chunk
+                .par_iter()
+                .flat_map_iter(|job| {
+                    process_entity_job(
+                        job,
+                        content,
+                        &entity_index_arc,
+                        unit_scale,
+                        rtc_offset,
+                        seed_plane_angle_to_radians,
+                        options.tessellation_quality,
+                        void_index_arc.as_ref(),
+                        skipped_entity_ids.as_ref(),
+                        geometry_style_index.as_ref(),
+                        indexed_colour_full.as_ref(),
+                        element_material_colors.as_ref(),
+                        texture_index.as_ref(),
+                        site_local_rotation,
+                        &csg_failure_collector,
+                        &item_dedup_cache,
+                    )
+                })
+                .collect()
+        } else {
+            jobs_chunk
+                .iter()
+                .map(|job| {
+                    let mut mesh = MeshData::new(
+                        job.id,
+                        job.ifc_type.to_string(),
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                        [0.8, 0.8, 0.8, 1.0],
+                    );
+                    mesh = mesh.with_element_metadata(
+                        job.global_id.clone(),
+                        job.name.clone(),
+                        job.presentation_layer.clone(),
+                    );
+                    if let Some(ref props) = job.space_zone_properties {
+                        mesh = mesh.with_properties(Some(props.clone()));
+                    }
+                    if let Some(ref psets) = job.element_property_sets {
+                        mesh = mesh.with_property_sets(Some(psets.clone()));
+                    }
+                    mesh
+                })
+                .collect()
+        };
 
         processed_jobs += jobs_chunk.len();
         total_vertices += chunk_meshes.iter().map(|m| m.vertex_count()).sum::<usize>();
