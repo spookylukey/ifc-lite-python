@@ -6,7 +6,7 @@
 //!
 //! Originally contributed by Mathias Søndergaard (Sonderwoods/Linkajou).
 
-use crate::types::mesh::MeshData;
+use crate::types::mesh::{MeshData, PropertySet, PropertyValue};
 use crate::types::response::{
     CoordinateInfo, ModelMetadata, ProcessingStats, QuickMetadataBootstrap,
     QuickMetadataEntitySummary, QuickMetadataSpatialNode,
@@ -243,6 +243,7 @@ struct EntityJob {
     name: Option<String>,
     presentation_layer: Option<String>,
     space_zone_properties: Option<BTreeMap<String, String>>,
+    element_property_sets: Option<Vec<PropertySet>>,
     /// Set for synthetic type-only-geometry jobs (#957): the `IfcRepresentationMap`
     /// id to render directly (baking its MappingOrigin) instead of walking the
     /// element's `IfcProductDefinitionShape`. `None` for ordinary product jobs.
@@ -568,6 +569,79 @@ fn assign_space_zone_properties(
     for job in entity_jobs.iter_mut() {
         if let Some(properties) = properties_by_entity.get(&job.id) {
             job.space_zone_properties = Some(properties.clone());
+        }
+    }
+}
+
+/// Build structured property sets for all entities, preserving property set grouping.
+fn build_property_sets_by_entity(
+    property_values_by_id: &FxHashMap<u32, (String, String)>,
+    property_sets_by_id: &FxHashMap<u32, PropertySetDefinition>,
+    rel_defines_by_properties: &[RelDefinesByPropertiesLink],
+) -> FxHashMap<u32, Vec<PropertySet>> {
+    let mut psets_by_entity: FxHashMap<u32, Vec<PropertySet>> = FxHashMap::default();
+
+    for link in rel_defines_by_properties {
+        let Some(pset_def) = property_sets_by_id.get(&link.property_set_id) else {
+            continue;
+        };
+
+        let pset_name = pset_def.name.clone().unwrap_or_default();
+
+        let mut props = Vec::new();
+        for property_id in &pset_def.property_ids {
+            if let Some((name, value)) = property_values_by_id.get(property_id) {
+                let trimmed_name = name.trim();
+                let trimmed_value = value.trim();
+                if !trimmed_name.is_empty() && !trimmed_value.is_empty() {
+                    props.push(PropertyValue {
+                        name: trimmed_name.to_string(),
+                        value: trimmed_value.to_string(),
+                    });
+                }
+            }
+        }
+
+        if props.is_empty() {
+            continue;
+        }
+
+        let pset = PropertySet {
+            name: pset_name,
+            properties: props,
+        };
+
+        for related_id in &link.related_object_ids {
+            psets_by_entity
+                .entry(*related_id)
+                .or_default()
+                .push(pset.clone());
+        }
+    }
+
+    psets_by_entity
+}
+
+/// Assign structured property sets to all entity jobs.
+fn assign_element_property_sets(
+    entity_jobs: &mut [EntityJob],
+    property_values_by_id: &FxHashMap<u32, (String, String)>,
+    property_sets_by_id: &FxHashMap<u32, PropertySetDefinition>,
+    rel_defines_by_properties: &[RelDefinesByPropertiesLink],
+) {
+    let psets_by_entity = build_property_sets_by_entity(
+        property_values_by_id,
+        property_sets_by_id,
+        rel_defines_by_properties,
+    );
+
+    if psets_by_entity.is_empty() {
+        return;
+    }
+
+    for job in entity_jobs.iter_mut() {
+        if let Some(psets) = psets_by_entity.get(&job.id) {
+            job.element_property_sets = Some(psets.clone());
         }
     }
 }
@@ -1129,6 +1203,7 @@ pub fn process_geometry_streaming_filtered_with_options(
                 name: None,
                 presentation_layer: None,
                 space_zone_properties: None,
+                element_property_sets: None,
                 representation_map_id: None,
             });
         }
@@ -1200,6 +1275,7 @@ pub fn process_geometry_streaming_filtered_with_options(
                 name: None,
                 presentation_layer: None,
                 space_zone_properties: None,
+                element_property_sets: None,
                 representation_map_id: Some(rep_map_id),
             });
         }
@@ -1233,6 +1309,12 @@ pub fn process_geometry_streaming_filtered_with_options(
     let lookup_start = Clock::now();
     if options.include_properties {
         assign_space_zone_properties(
+            &mut entity_jobs,
+            &property_values_by_id,
+            &property_sets_by_id,
+            &rel_defines_by_properties,
+        );
+        assign_element_property_sets(
             &mut entity_jobs,
             &property_values_by_id,
             &property_sets_by_id,
@@ -1802,6 +1884,7 @@ fn process_entity_job(
         name: job.name.clone(),
         presentation_layer: job.presentation_layer.clone(),
         space_zone_properties: job.space_zone_properties.clone(),
+        element_property_sets: job.element_property_sets.clone(),
     };
     // #957: the scan loop plans type geometry with `SuppressInstanced` (see
     // `plan_type_geometry`), so a synthetic job's map always renders as an

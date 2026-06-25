@@ -35,7 +35,7 @@
 //! ```
 
 use crate::style::{FullIndexedColourMap, GeometryStyleInfo};
-use crate::types::mesh::{MeshData, MeshTextureData};
+use crate::types::mesh::{MeshData, MeshTextureData, PropertySet};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use ifc_lite_geometry::{
     calculate_normals, orient_mesh_outward, BoolFailure, GeometryHasher, GeometryRouter, Mesh,
@@ -55,6 +55,7 @@ pub struct ElementMeshMetadata {
     pub name: Option<String>,
     pub presentation_layer: Option<String>,
     pub space_zone_properties: Option<BTreeMap<String, String>>,
+    pub element_property_sets: Option<Vec<PropertySet>>,
 }
 
 /// What the job renders.
@@ -600,7 +601,8 @@ fn build_mesh_data(
                 meta.name.clone(),
                 meta.presentation_layer.clone(),
             )
-            .with_properties(meta.space_zone_properties.clone());
+            .with_properties(meta.space_zone_properties.clone())
+            .with_property_sets(meta.element_property_sets.clone());
     }
     if material_name.is_some() || geometry_item_id.is_some() {
         mesh_data = mesh_data.with_style_metadata(material_name, geometry_item_id);

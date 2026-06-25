@@ -8,6 +8,24 @@ use ifc_lite_geometry::InstanceMeta;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// A single property within a property set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertyValue {
+    /// Property name.
+    pub name: String,
+    /// Property value as a string.
+    pub value: String,
+}
+
+/// A named property set containing multiple properties.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertySet {
+    /// Property set name (e.g., "Pset_WallCommon").
+    pub name: String,
+    /// Properties within this set.
+    pub properties: Vec<PropertyValue>,
+}
+
 /// A decoded RGBA8 surface texture attached to a mesh (issue #961).
 /// Decoded entirely in Rust (`IfcBlobTexture` PNG / `IfcPixelTexture` raw); the
 /// browser only uploads `rgba` to a GPU texture — no image logic in TS.
@@ -56,6 +74,10 @@ pub struct MeshData {
     /// Primarily attached for IfcSpace/IfcZone so downstream tools can build room attribute UIs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, String>>,
+    /// Structured property sets preserving the IFC property set grouping.
+    /// Contains all property sets for this element (both occurrence and type).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property_sets: Option<Vec<PropertySet>>,
     /// Per-vertex texture coordinates (u, v pairs, 1:1 with `positions`),
     /// present only for textured meshes (issue #961).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +142,7 @@ impl MeshData {
             material_name: None,
             geometry_item_id: None,
             properties: None,
+            property_sets: None,
             uvs: None,
             texture: None,
             geometry_class: 0,
@@ -181,6 +204,12 @@ impl MeshData {
     /// Attach optional IFC property set values.
     pub fn with_properties(mut self, properties: Option<BTreeMap<String, String>>) -> Self {
         self.properties = properties;
+        self
+    }
+
+    /// Attach structured IFC property sets.
+    pub fn with_property_sets(mut self, property_sets: Option<Vec<PropertySet>>) -> Self {
+        self.property_sets = property_sets;
         self
     }
 
