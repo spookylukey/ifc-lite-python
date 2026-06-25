@@ -45,7 +45,7 @@ fi
 TARGET_REF="${1:-main}"
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  ifc-lite vendor update                                     ║"
+echo "║  ifc-lite vendor update                                      ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Upstream repo : $UPSTREAM_REPO"
@@ -176,7 +176,7 @@ for patch_file in "$PATCHES_DIR"/*.patch; do
     else
         echo ""
         echo "╔══════════════════════════════════════════════════════════════╗"
-        echo "║  PATCH CONFLICT                                             ║"
+        echo "║  PATCH CONFLICT                                              ║"
         echo "╚══════════════════════════════════════════════════════════════╝"
         echo ""
         echo "Patch '$patch_name' does not apply cleanly."
@@ -226,7 +226,7 @@ done
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  UPDATE COMPLETE                                            ║"
+echo "║  UPDATE COMPLETE                                             ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Upstream: $UPSTREAM_SHORT ($UPSTREAM_MSG)"
