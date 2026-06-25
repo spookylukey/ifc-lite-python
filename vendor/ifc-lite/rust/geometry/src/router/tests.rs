@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::GeometryRouter;
+use crate::diagnostics::{BoolFailure, BoolFailureReason, BoolOp};
 use ifc_lite_core::EntityDecoder;
 
 #[test]
@@ -10,6 +11,92 @@ fn test_router_creation() {
     let router = GeometryRouter::new();
     // Router registers default processors on creation
     assert!(!router.processors.is_empty());
+}
+
+#[test]
+fn router_records_and_drains_csg_failures_with_product_id() {
+    let router = GeometryRouter::new();
+    assert_eq!(router.csg_failure_total(), 0);
+    assert_eq!(router.csg_failure_product_count(), 0);
+
+    let f1 = BoolFailure::new(
+        BoolOp::Difference,
+        BoolFailureReason::OperandTooLarge {
+            polys_a: 36,
+            polys_b: 12,
+        },
+    );
+    let f2 = BoolFailure::new(BoolOp::Difference, BoolFailureReason::NoBoundsOverlap);
+    router.record_csg_failures(/* product_id */ 1234, vec![f1, f2]);
+
+    let f3 = BoolFailure::new(
+        BoolOp::Union,
+        BoolFailureReason::KernelError("boom".into()),
+    );
+    router.record_csg_failures(5678, vec![f3]);
+
+    assert_eq!(router.csg_failure_total(), 3);
+    assert_eq!(router.csg_failure_product_count(), 2);
+
+    let drained = router.take_csg_failures();
+    assert_eq!(drained.len(), 2);
+    let p1 = drained.get(&1234).expect("product 1234 has failures");
+    assert_eq!(p1.len(), 2);
+    assert_eq!(p1[0].product_id, Some(1234), "product_id attached on drain");
+    assert_eq!(p1[0].op, BoolOp::Difference);
+    assert!(matches!(
+        p1[0].reason,
+        BoolFailureReason::OperandTooLarge { .. }
+    ));
+    assert_eq!(p1[1].product_id, Some(1234));
+
+    let p2 = drained.get(&5678).expect("product 5678 has failures");
+    assert_eq!(p2.len(), 1);
+    assert_eq!(p2[0].product_id, Some(5678));
+    assert_eq!(p2[0].op, BoolOp::Union);
+
+    // Drain must clear the log.
+    assert_eq!(router.csg_failure_total(), 0);
+    assert!(router.take_csg_failures().is_empty());
+}
+
+#[test]
+fn router_record_csg_failures_with_empty_vec_is_noop() {
+    let router = GeometryRouter::new();
+    router.record_csg_failures(42, Vec::new());
+    assert_eq!(router.csg_failure_total(), 0);
+    assert_eq!(router.csg_failure_product_count(), 0);
+}
+
+#[test]
+fn router_csg_failures_append_under_same_product() {
+    let router = GeometryRouter::new();
+    router.record_csg_failures(
+        7,
+        vec![BoolFailure::new(
+            BoolOp::Difference,
+            BoolFailureReason::EmptyOperand,
+        )],
+    );
+    router.record_csg_failures(
+        7,
+        vec![BoolFailure::new(
+            BoolOp::Difference,
+            BoolFailureReason::DegenerateOperand,
+        )],
+    );
+
+    assert_eq!(router.csg_failure_product_count(), 1);
+    assert_eq!(router.csg_failure_total(), 2);
+
+    let drained = router.take_csg_failures();
+    let entries = drained.get(&7).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert!(matches!(entries[0].reason, BoolFailureReason::EmptyOperand));
+    assert!(matches!(
+        entries[1].reason,
+        BoolFailureReason::DegenerateOperand
+    ));
 }
 
 #[test]
@@ -299,8 +386,18 @@ mod wall_profile_research {
         let final_vertex_count = result.vertex_count();
         let final_triangle_count = result.triangle_count();
 
-        // Verify opening was cut
-        assert!(final_vertex_count > initial_vertex_count);
+        // Verify the cut actually changed the geometry. Both kernels add
+        // new geometry at the cut boundary, but Manifold deduplicates
+        // shared vertices so its final vertex count can be ≤ the legacy
+        // BSP path's raw count. The triangle count is the safer signal
+        // because each cut box introduces extra side / cap triangles
+        // either way.
+        assert!(
+            final_triangle_count > initial_triangle_count,
+            "subtract_box must add boundary triangles ({} → {})",
+            initial_triangle_count,
+            final_triangle_count,
+        );
 
         // Verify chamfers are preserved (mesh should still span full length)
         let (_min, max) = result.bounds();
@@ -451,12 +548,12 @@ mod wall_profile_research {
 
         // Get wall bounds for the optimized function
         let (wall_min_f32, wall_max_f32) = wall_mesh.bounds();
-        let wall_min = Point3::new(
+        let _wall_min = Point3::new(
             wall_min_f32.x as f64,
             wall_min_f32.y as f64,
             wall_min_f32.z as f64,
         );
-        let wall_max = Point3::new(
+        let _wall_max = Point3::new(
             wall_max_f32.x as f64,
             wall_max_f32.y as f64,
             wall_max_f32.z as f64,
@@ -543,7 +640,7 @@ mod wall_profile_research {
 /// (e.g. GDA2020 MGA56: X ~280 000, Y ~6 214 000) directly in Brep geometry
 /// vertices while keeping IfcLocalPlacement at origin (0, 0, 0).
 ///
-/// Regression test for <https://github.com/louistrue/ifc-lite/issues/335>.
+/// Regression test for <https://github.com/LTplus-AG/ifc-lite/issues/335>.
 mod infra_rtc_detection {
     use super::*;
 
@@ -782,7 +879,7 @@ END-ISO-10303-21;
         // The RTC delta between models should be finite and usable for alignment
         let delta_x = offset_a.0 - offset_b.0;
         let delta_y = offset_a.1 - offset_b.1;
-        let delta_z = offset_a.2 - offset_b.2;
+        let _delta_z = offset_a.2 - offset_b.2;
 
         // Models are about 1.3 km apart in X and 1 km apart in Y
         assert!(

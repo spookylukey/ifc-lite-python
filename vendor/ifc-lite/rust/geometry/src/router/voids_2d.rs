@@ -229,7 +229,8 @@ impl GeometryRouter {
             // No valid openings - just process the extrusion normally
             let processor = self.processors.get(&IfcType::IfcExtrudedAreaSolid);
             if let Some(proc) = processor {
-                let mut mesh = proc.process(extrusion, decoder, &self.schema)?;
+                let mut mesh =
+                    proc.process(extrusion, decoder, &self.schema, self.tessellation_quality)?;
                 self.scale_mesh(&mut mesh);
                 self.apply_placement(element, decoder, &mut mesh)?;
                 return Ok(Some(mesh));
@@ -302,7 +303,7 @@ impl GeometryRouter {
                 // Fall back to normal extrusion
                 let processor = self.processors.get(&IfcType::IfcExtrudedAreaSolid);
                 if let Some(proc) = processor {
-                    proc.process(extrusion, decoder, &self.schema)?
+                    proc.process(extrusion, decoder, &self.schema, self.tessellation_quality)?
                 } else {
                     return Ok(None);
                 }
@@ -348,7 +349,10 @@ impl GeometryRouter {
             IfcType::IfcCircleProfileDef => {
                 use crate::profile::create_circle;
                 let radius = profile_entity.get_float(3).unwrap_or(1.0);
-                Ok(create_circle(radius, None))
+                // Opening cutter circle: never finer than historical (denser caps
+                // only add earcut bridge slivers), but coarsens below Medium —
+                // see `calculate_circle_segments` / `circle_profile_segments`.
+                Ok(create_circle(radius, None, self.tessellation_quality))
             }
 
             IfcType::IfcArbitraryClosedProfileDef => {
@@ -414,7 +418,7 @@ impl GeometryRouter {
                 let point_entities = decoder.resolve_ref_list(points_attr)?;
                 let mut points = Vec::with_capacity(point_entities.len());
 
-                for (_i, point_entity) in point_entities.iter().enumerate() {
+                for point_entity in point_entities.iter() {
                     if point_entity.ifc_type == IfcType::IfcCartesianPoint {
                         if let Some(coords_attr) = point_entity.get(0) {
                             if let Some(coords) = coords_attr.as_list() {

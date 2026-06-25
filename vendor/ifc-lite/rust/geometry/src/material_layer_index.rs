@@ -110,7 +110,11 @@ impl MaterialLayerIndex {
     /// object ID. Elements that associate with a non-sliceable material are
     /// still inserted (as `NotSliceable`) so callers can distinguish
     /// "has a material, can't slice" from "no material association at all".
-    pub fn from_content(content: &str, decoder: &mut EntityDecoder) -> Self {
+    pub fn from_content<T>(content: &T, decoder: &mut EntityDecoder) -> Self
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        let content = content.as_ref();
         let mut index = Self::new();
         let mut scanner = EntityScanner::new(content);
 
@@ -165,6 +169,21 @@ impl MaterialLayerIndex {
         self.element_to_buildup.get(&element_id)
     }
 
+    /// Returns `true` when the element has a recorded buildup that is
+    /// `LayerBuildup::Sliceable` — i.e. its single swept solid can be cut
+    /// into per-layer slabs.
+    ///
+    /// Used by the wasm-bindings layer to decide whether an aggregated
+    /// `IfcWall` parent already produces per-layer sub-meshes (so its
+    /// `IfcBuildingElementPart` children can be skipped when the
+    /// merge-layers toggle is on — see issue #540).
+    pub fn is_sliceable(&self, element_id: u32) -> bool {
+        matches!(
+            self.element_to_buildup.get(&element_id),
+            Some(LayerBuildup::Sliceable { .. })
+        )
+    }
+
     /// Number of elements with a recorded buildup (sliceable or not).
     pub fn len(&self) -> usize {
         self.element_to_buildup.len()
@@ -212,15 +231,16 @@ fn resolve_buildup(material_select_id: u32, decoder: &mut EntityDecoder) -> Laye
 ///   1: LayerSetDirection (IfcLayerSetDirectionEnum)
 ///   2: DirectionSense (IfcDirectionSenseEnum)
 ///   3: OffsetFromReferenceLine (IfcLengthMeasure)
-fn resolve_layer_set_usage(
-    usage: &DecodedEntity,
-    decoder: &mut EntityDecoder,
-) -> LayerBuildup {
+fn resolve_layer_set_usage(usage: &DecodedEntity, decoder: &mut EntityDecoder) -> LayerBuildup {
     let layer_set_id = match usage.get_ref(0) {
         Some(id) => id,
         None => return LayerBuildup::NotSliceable,
     };
-    let axis = match usage.get(1).and_then(|a| a.as_enum()).map(str::to_ascii_uppercase) {
+    let axis = match usage
+        .get(1)
+        .and_then(|a| a.as_enum())
+        .map(str::to_ascii_uppercase)
+    {
         Some(s) if s == "AXIS1" => LayerAxis::Axis1,
         Some(s) if s == "AXIS2" => LayerAxis::Axis2,
         Some(s) if s == "AXIS3" => LayerAxis::Axis3,
@@ -228,7 +248,10 @@ fn resolve_layer_set_usage(
         // rather than guess, treat as unsliceable.
         _ => return LayerBuildup::NotSliceable,
     };
-    let direction_sense = match usage.get(2).and_then(|a| a.as_enum()).map(str::to_ascii_uppercase)
+    let direction_sense = match usage
+        .get(2)
+        .and_then(|a| a.as_enum())
+        .map(str::to_ascii_uppercase)
     {
         Some(s) if s == "POSITIVE" => 1.0_f64,
         Some(s) if s == "NEGATIVE" => -1.0_f64,
@@ -275,7 +298,10 @@ fn resolve_layer_set_usage(
             // Skip the layer rather than the whole buildup.
             continue;
         }
-        layers.push(LayerInfo { material_id, thickness });
+        layers.push(LayerInfo {
+            material_id,
+            thickness,
+        });
     }
 
     if layers.len() < 2 {

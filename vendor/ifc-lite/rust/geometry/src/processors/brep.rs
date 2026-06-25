@@ -7,12 +7,21 @@
 //! Handles IfcFacetedBrep, IfcFaceBasedSurfaceModel, and IfcShellBasedSurfaceModel.
 //! All deal with boundary representations composed of face loops.
 
-use crate::{Error, Mesh, Point3, Result};
+use crate::{Error, Mesh, Point3, Result, TessellationQuality};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
 use super::advanced_face::process_advanced_face;
 use super::helpers::{extract_loop_points_by_id, FaceData, FaceResult};
 use crate::router::GeometryProcessor;
+
+/// Minimum face count at which parallel (rayon) triangulation pays off. Below
+/// this, the fork-join dispatch overhead exceeds the work — real-world BReps are
+/// overwhelmingly tiny (6–50 faces of trivial tri/quad/convex fast-path geometry),
+/// so dispatching each tiny shell through rayon costs far more than it saves
+/// (worse under the per-element worker pool, where this is nested parallelism).
+/// The serial and parallel paths produce byte-identical output: `collect`
+/// preserves index order and each face's f32 result is computed identically.
+const PAR_FACE_THRESHOLD: usize = 64;
 
 // ---------- FacetedBrepProcessor ----------
 
@@ -252,161 +261,6 @@ impl FacetedBrepProcessor {
         FaceResult { positions, indices }
     }
 
-    /// Batch process multiple FacetedBrep entities for maximum parallelism
-    /// Extracts all face data sequentially, then triangulates ALL faces in one parallel batch
-    /// Returns Vec of (brep_index, Mesh) pairs.
-    /// `rtc`: RTC offset applied during f64→f32 conversion for precision.
-    pub fn process_batch(
-        &self,
-        brep_ids: &[u32],
-        decoder: &mut EntityDecoder,
-        rtc: (f64, f64, f64),
-        large_coord_threshold_file_units: f64,
-    ) -> Vec<(usize, Mesh)> {
-        use rayon::prelude::*;
-
-        // PHASE 1: Sequential - Extract all face data from all BREPs
-        // Each entry: (brep_index, face_data)
-        let mut all_faces: Vec<(usize, FaceData)> = Vec::with_capacity(brep_ids.len() * 10);
-        let mut raw_large_by_brep = vec![false; brep_ids.len()];
-
-        for (brep_idx, &brep_id) in brep_ids.iter().enumerate() {
-            // FAST PATH: Get shell ID directly from raw bytes (avoids full entity decode)
-            let shell_id = match decoder.get_first_entity_ref_fast(brep_id) {
-                Some(id) => id,
-                None => continue,
-            };
-
-            // FAST PATH: Get face IDs from shell using raw bytes
-            let face_ids = match decoder.get_entity_ref_list_fast(shell_id) {
-                Some(ids) => ids,
-                None => continue,
-            };
-
-            // Extract face data for each face
-            for face_id in face_ids {
-                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
-                    Some(ids) => ids,
-                    None => continue,
-                };
-
-                let mut outer_bound_points: Option<Vec<Point3<f64>>> = None;
-                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
-
-                for bound_id in bound_ids {
-                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
-                    // get_face_bound_fast returns (loop_id, orientation, is_outer)
-                    let (loop_id, orientation, is_outer) =
-                        match decoder.get_face_bound_fast(bound_id) {
-                            Some(data) => data,
-                            None => continue,
-                        };
-
-                    // FAST PATH: Get loop points directly from entity ID
-                    let mut points = match self.extract_loop_points_fast(loop_id, decoder) {
-                        Some(p) => p,
-                        None => continue,
-                    };
-
-                    if !raw_large_by_brep[brep_idx]
-                        && points.iter().any(|point| {
-                            point.x.abs().max(point.y.abs()).max(point.z.abs())
-                                > large_coord_threshold_file_units
-                        })
-                    {
-                        raw_large_by_brep[brep_idx] = true;
-                    }
-
-                    if !orientation {
-                        points.reverse();
-                    }
-
-                    if is_outer || outer_bound_points.is_none() {
-                        if outer_bound_points.is_some() && is_outer {
-                            if let Some(prev_outer) = outer_bound_points.take() {
-                                hole_points.push(prev_outer);
-                            }
-                        }
-                        outer_bound_points = Some(points);
-                    } else {
-                        hole_points.push(points);
-                    }
-                }
-
-                if let Some(outer_points) = outer_bound_points {
-                    all_faces.push((
-                        brep_idx,
-                        FaceData {
-                            outer_points,
-                            hole_points,
-                        },
-                    ));
-                }
-            }
-        }
-
-        // PHASE 2: Triangulate ALL faces from ALL BREPs in one parallel batch
-        // Uses rayon thread pool on both native and WASM (via wasm-bindgen-rayon)
-        let face_results: Vec<(usize, FaceResult)> = all_faces
-            .par_iter()
-            .map(|(brep_idx, face)| {
-                let face_rtc = if raw_large_by_brep[*brep_idx] {
-                    rtc
-                } else {
-                    (0.0, 0.0, 0.0)
-                };
-                (*brep_idx, Self::triangulate_face(face, face_rtc))
-            })
-            .collect();
-
-        // PHASE 3: Group results back by BREP index
-        // First, count faces per BREP to pre-allocate
-        let mut face_counts = vec![0usize; brep_ids.len()];
-        for (brep_idx, _) in &face_results {
-            face_counts[*brep_idx] += 1;
-        }
-
-        // Initialize mesh builders for each BREP
-        let mut mesh_builders: Vec<(Vec<f32>, Vec<u32>)> = face_counts
-            .iter()
-            .map(|&count| {
-                (
-                    Vec::with_capacity(count * 100),
-                    Vec::with_capacity(count * 50),
-                )
-            })
-            .collect();
-
-        // Merge face results into their respective meshes
-        for (brep_idx, result) in face_results {
-            let (positions, indices) = &mut mesh_builders[brep_idx];
-            let base_idx = (positions.len() / 3) as u32;
-            positions.extend(result.positions);
-            for idx in result.indices {
-                indices.push(base_idx + idx);
-            }
-        }
-
-        // Convert to final meshes
-        mesh_builders
-            .into_iter()
-            .enumerate()
-            .filter(|(_, (positions, _))| !positions.is_empty())
-            .map(|(brep_idx, (positions, indices))| {
-                (
-                    brep_idx,
-                    Mesh {
-                        positions,
-                        normals: Vec::new(),
-                        indices,
-                        // RTC is pre-subtracted only for raw world-coordinate Breps.
-                        rtc_applied: raw_large_by_brep[brep_idx]
-                            && (rtc.0 != 0.0 || rtc.1 != 0.0 || rtc.2 != 0.0),
-                    },
-                )
-            })
-            .collect()
-    }
 }
 
 impl FacetedBrepProcessor {
@@ -471,10 +325,18 @@ impl FacetedBrepProcessor {
             }
         }
 
-        let face_results: Vec<FaceResult> = face_data_list
-            .par_iter()
-            .map(|face| Self::triangulate_face(face, rtc))
-            .collect();
+        // Serial for small shells (avoids rayon fork-join overhead); byte-identical.
+        let face_results: Vec<FaceResult> = if face_data_list.len() < PAR_FACE_THRESHOLD {
+            face_data_list
+                .iter()
+                .map(|face| Self::triangulate_face(face, rtc))
+                .collect()
+        } else {
+            face_data_list
+                .par_iter()
+                .map(|face| Self::triangulate_face(face, rtc))
+                .collect()
+        };
 
         let total_positions: usize = face_results.iter().map(|r| r.positions.len()).sum();
         let total_indices: usize = face_results.iter().map(|r| r.indices.len()).sum();
@@ -492,7 +354,8 @@ impl FacetedBrepProcessor {
             normals: Vec::new(),
             indices,
             rtc_applied: true, // RTC already subtracted during f64→f32 conversion
-        })
+            origin: [0.0; 3],
+        instance_meta: None, })
     }
 }
 
@@ -502,6 +365,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _quality: TessellationQuality,
     ) -> Result<Mesh> {
         use rayon::prelude::*;
 
@@ -578,10 +442,17 @@ impl GeometryProcessor for FacetedBrepProcessor {
         // Standard processor path uses no RTC (0,0,0) — the router applies RTC
         // via transform_mesh. For full-precision infra models, the router calls
         // process_with_rtc instead which passes the actual offset.
-        let face_results: Vec<FaceResult> = face_data_list
-            .par_iter()
-            .map(|face| Self::triangulate_face(face, (0.0, 0.0, 0.0)))
-            .collect();
+        let face_results: Vec<FaceResult> = if face_data_list.len() < PAR_FACE_THRESHOLD {
+            face_data_list
+                .iter()
+                .map(|face| Self::triangulate_face(face, (0.0, 0.0, 0.0)))
+                .collect()
+        } else {
+            face_data_list
+                .par_iter()
+                .map(|face| Self::triangulate_face(face, (0.0, 0.0, 0.0)))
+                .collect()
+        };
 
         // PHASE 3: Sequential - Merge all face results into final mesh
         // Pre-calculate total sizes for efficient allocation
@@ -605,8 +476,8 @@ impl GeometryProcessor for FacetedBrepProcessor {
             positions,
             normals: Vec::new(),
             indices,
-            rtc_applied: false,
-        })
+            rtc_applied: false, 
+            origin: [0.0; 3],        instance_meta: None, })
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
@@ -645,6 +516,7 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        quality: TessellationQuality,
     ) -> Result<Mesh> {
         // IfcFaceBasedSurfaceModel attributes:
         // 0: FbsmFaces (SET of IfcConnectedFaceSet)
@@ -684,7 +556,7 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
 
                 if face.ifc_type == IfcType::IfcAdvancedFace {
                     // Advanced face: delegate to shared NURBS/planar/cylindrical handler
-                    let (positions, indices) = match process_advanced_face(&face, decoder) {
+                    let (positions, indices) = match process_advanced_face(&face, decoder, quality) {
                         Ok(result) => result,
                         Err(_) => continue,
                     };
@@ -726,29 +598,43 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
                         }
 
                         if is_outer || outer_points.is_none() {
+                            // A second outer bound demotes the previous one to a
+                            // hole rather than dropping it (parity with
+                            // FacetedBrepProcessor); a face is otherwise lost.
+                            if outer_points.is_some() && is_outer {
+                                if let Some(prev_outer) = outer_points.take() {
+                                    hole_points.push(prev_outer);
+                                }
+                            }
                             outer_points = Some(points);
                         } else {
                             hole_points.push(points);
                         }
                     }
 
-                    // Triangulate the face
+                    // Triangulate the face through the shared FacetedBrep face
+                    // triangulator (tri/quad fast paths, convexity test, and
+                    // ear-clipping with hole support). The previous naive fan
+                    // here mis-triangulated CONCAVE faces — fan triangles from
+                    // vertex 0 sweep ACROSS the concavity, rendering folded
+                    // sheet-metal profiles (schependomlaan "zinkwerk" covering
+                    // flashings, serpentine 30-vertex end-cap loops) as
+                    // stretched diagonal flaps with up to 2.4x the authored
+                    // surface area — and silently dropped hole bounds.
                     if let Some(outer) = outer_points {
                         if outer.len() >= 3 {
+                            let face_data = FaceData {
+                                outer_points: outer,
+                                hole_points,
+                            };
+                            let result = FacetedBrepProcessor::triangulate_face(
+                                &face_data,
+                                (0.0, 0.0, 0.0),
+                            );
                             let base_idx = (all_positions.len() / 3) as u32;
-
-                            // Add positions
-                            for p in &outer {
-                                all_positions.push(p.x as f32);
-                                all_positions.push(p.y as f32);
-                                all_positions.push(p.z as f32);
-                            }
-
-                            // Simple fan triangulation (works for convex faces)
-                            for i in 1..outer.len() - 1 {
-                                all_indices.push(base_idx);
-                                all_indices.push(base_idx + i as u32);
-                                all_indices.push(base_idx + i as u32 + 1);
+                            all_positions.extend(result.positions);
+                            for idx in result.indices {
+                                all_indices.push(base_idx + idx);
                             }
                         }
                     }
@@ -760,8 +646,8 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
             positions: all_positions,
             normals: Vec::new(),
             indices: all_indices,
-            rtc_applied: false,
-        })
+            rtc_applied: false, 
+            origin: [0.0; 3],        instance_meta: None, })
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
@@ -800,6 +686,7 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        quality: TessellationQuality,
     ) -> Result<Mesh> {
         // IfcShellBasedSurfaceModel attributes:
         // 0: SbsmBoundary (SET of IfcShell - either IfcOpenShell or IfcClosedShell)
@@ -841,7 +728,7 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
 
                 if face.ifc_type == IfcType::IfcAdvancedFace {
                     // Advanced face: delegate to shared NURBS/planar/cylindrical handler
-                    let (positions, indices) = match process_advanced_face(&face, decoder) {
+                    let (positions, indices) = match process_advanced_face(&face, decoder, quality) {
                         Ok(result) => result,
                         Err(_) => continue,
                     };
@@ -882,29 +769,43 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
                         }
 
                         if is_outer || outer_points.is_none() {
+                            // A second outer bound demotes the previous one to a
+                            // hole rather than dropping it (parity with
+                            // FacetedBrepProcessor); a face is otherwise lost.
+                            if outer_points.is_some() && is_outer {
+                                if let Some(prev_outer) = outer_points.take() {
+                                    hole_points.push(prev_outer);
+                                }
+                            }
                             outer_points = Some(points);
                         } else {
                             hole_points.push(points);
                         }
                     }
 
-                    // Triangulate the face
+                    // Triangulate the face through the shared FacetedBrep face
+                    // triangulator (tri/quad fast paths, convexity test, and
+                    // ear-clipping with hole support). The previous naive fan
+                    // here mis-triangulated CONCAVE faces — fan triangles from
+                    // vertex 0 sweep ACROSS the concavity, rendering folded
+                    // sheet-metal profiles (schependomlaan "zinkwerk" covering
+                    // flashings, serpentine 30-vertex end-cap loops) as
+                    // stretched diagonal flaps with up to 2.4x the authored
+                    // surface area — and silently dropped hole bounds.
                     if let Some(outer) = outer_points {
                         if outer.len() >= 3 {
+                            let face_data = FaceData {
+                                outer_points: outer,
+                                hole_points,
+                            };
+                            let result = FacetedBrepProcessor::triangulate_face(
+                                &face_data,
+                                (0.0, 0.0, 0.0),
+                            );
                             let base_idx = (all_positions.len() / 3) as u32;
-
-                            // Add positions
-                            for p in &outer {
-                                all_positions.push(p.x as f32);
-                                all_positions.push(p.y as f32);
-                                all_positions.push(p.z as f32);
-                            }
-
-                            // Simple fan triangulation (works for convex faces)
-                            for i in 1..outer.len() - 1 {
-                                all_indices.push(base_idx);
-                                all_indices.push(base_idx + i as u32);
-                                all_indices.push(base_idx + i as u32 + 1);
+                            all_positions.extend(result.positions);
+                            for idx in result.indices {
+                                all_indices.push(base_idx + idx);
                             }
                         }
                     }
@@ -916,8 +817,8 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
             positions: all_positions,
             normals: Vec::new(),
             indices: all_indices,
-            rtc_applied: false,
-        })
+            rtc_applied: false, 
+            origin: [0.0; 3],        instance_meta: None, })
     }
 
     fn supported_types(&self) -> Vec<IfcType> {

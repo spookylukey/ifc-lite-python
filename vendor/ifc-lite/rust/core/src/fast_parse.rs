@@ -57,7 +57,7 @@ pub fn parse_coordinates_direct(bytes: &[u8]) -> Vec<f32> {
         }
 
         // Parse float directly
-        match fast_float::parse_partial::<f32, _>(&bytes[pos..]) {
+        match fast_float2::parse_partial::<f32, _>(&bytes[pos..]) {
             Ok((value, consumed)) if consumed > 0 => {
                 result.push(value);
                 pos += consumed;
@@ -89,7 +89,7 @@ pub fn parse_coordinates_direct_f64(bytes: &[u8]) -> Vec<f64> {
             break;
         }
 
-        match fast_float::parse_partial::<f64, _>(&bytes[pos..]) {
+        match fast_float2::parse_partial::<f64, _>(&bytes[pos..]) {
             Ok((value, consumed)) if consumed > 0 => {
                 result.push(value);
                 pos += consumed;
@@ -203,9 +203,6 @@ pub fn extract_face_indices_from_entity(bytes: &[u8]) -> Option<Vec<u32>> {
                     attr_end = Some(i);
                 }
                 comma_count += 1;
-                if comma_count == 3 {
-                    // Next character starts the 4th attribute
-                }
             }
             _ => {}
         }
@@ -228,6 +225,7 @@ pub fn should_use_fast_path(type_name: &str) -> bool {
         type_name.to_uppercase().as_str(),
         "IFCCARTESIANPOINTLIST3D"
             | "IFCTRIANGULATEDFACESET"
+            | "IFCTRIANGULATEDIRREGULARNETWORK"
             | "IFCPOLYGONALFACESET"
             | "IFCINDEXEDPOLYGONALFACE"
     )

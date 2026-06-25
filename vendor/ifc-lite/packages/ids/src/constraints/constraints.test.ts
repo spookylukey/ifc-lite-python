@@ -1,0 +1,332 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+import { matchConstraint } from './index.js';
+import type {
+  IDSSimpleValue,
+  IDSPatternConstraint,
+  IDSEnumerationConstraint,
+  IDSBoundsConstraint,
+} from '../types.js';
+
+// ============================================================================
+// matchConstraint — Simple Values
+// ============================================================================
+
+describe('matchConstraint — simpleValue', () => {
+  const sv = (value: string): IDSSimpleValue => ({
+    type: 'simpleValue',
+    value,
+  });
+
+  it('matches exact string', () => {
+    expect(matchConstraint(sv('hello'), 'hello')).toBe(true);
+  });
+
+  it('rejects different string', () => {
+    expect(matchConstraint(sv('hello'), 'world')).toBe(false);
+  });
+
+  it('is case-sensitive by default', () => {
+    expect(matchConstraint(sv('IFCWALL'), 'IfcWall')).toBe(false);
+    expect(matchConstraint(sv('hello'), 'Hello')).toBe(false);
+  });
+
+  it('matches case-insensitively when option is set (IFC entity names)', () => {
+    const ci = { caseInsensitive: true };
+    expect(matchConstraint(sv('IFCWALL'), 'IfcWall', ci)).toBe(true);
+    expect(matchConstraint(sv('IfcWall'), 'IFCWALL', ci)).toBe(true);
+    expect(matchConstraint(sv('ifcwall'), 'IFCWALL', ci)).toBe(true);
+  });
+
+  it('matches numeric values with tolerance', () => {
+    expect(matchConstraint(sv('3.14'), 3.14)).toBe(true);
+    expect(matchConstraint(sv('3.14'), 3.1400005)).toBe(true); // within 1e-6
+    expect(matchConstraint(sv('3.14'), 3.15)).toBe(false);
+  });
+
+  it('matches numeric string against numeric string', () => {
+    expect(matchConstraint(sv('42'), '42')).toBe(true);
+    expect(matchConstraint(sv('42'), '42.0000005')).toBe(true); // within tolerance
+  });
+
+  it('matches boolean true (strict lowercase per IDS spec)', () => {
+    expect(matchConstraint(sv('true'), true)).toBe(true);
+    // Numeric `1` / `0` are NOT valid boolean literals per IDS 1.0.
+    expect(matchConstraint(sv('1'), true)).toBe(false);
+    expect(matchConstraint(sv('false'), true)).toBe(false);
+  });
+
+  it('matches boolean false (strict lowercase per IDS spec)', () => {
+    expect(matchConstraint(sv('false'), false)).toBe(true);
+    expect(matchConstraint(sv('0'), false)).toBe(false);
+    expect(matchConstraint(sv('true'), false)).toBe(false);
+  });
+
+  it('matches boolean string values (case-sensitive, lowercase only)', () => {
+    expect(matchConstraint(sv('true'), 'true')).toBe(true);
+    expect(matchConstraint(sv('false'), 'false')).toBe(true);
+    expect(matchConstraint(sv('true'), 'false')).toBe(false);
+    // Uppercase or mixed-case literals are malformed per IDS spec.
+    expect(matchConstraint(sv('TRUE'), 'true')).toBe(false);
+    expect(matchConstraint(sv('false'), 'FALSE')).toBe(false);
+  });
+
+  it('returns false for null/undefined', () => {
+    expect(matchConstraint(sv('anything'), null)).toBe(false);
+    expect(matchConstraint(sv('anything'), undefined)).toBe(false);
+  });
+
+  it('handles empty string', () => {
+    expect(matchConstraint(sv(''), '')).toBe(true);
+    expect(matchConstraint(sv(''), 'notempty')).toBe(false);
+  });
+});
+
+// ============================================================================
+// matchConstraint — Pattern
+// ============================================================================
+
+describe('matchConstraint — pattern', () => {
+  const pat = (pattern: string): IDSPatternConstraint => ({
+    type: 'pattern',
+    pattern,
+  });
+  const patB = (pattern: string, base: string): IDSPatternConstraint => ({
+    type: 'pattern',
+    pattern,
+    base,
+  });
+
+  it('matches simple regex', () => {
+    expect(matchConstraint(pat('Wall.*'), 'Wall_001')).toBe(true);
+    expect(matchConstraint(pat('Wall.*'), 'Slab_001')).toBe(false);
+  });
+
+  it('anchors the match to the full string', () => {
+    // Pattern should match entire string, not just a substring
+    expect(matchConstraint(pat('Wall'), 'Wall')).toBe(true);
+    expect(matchConstraint(pat('Wall'), 'BigWall')).toBe(false);
+    expect(matchConstraint(pat('Wall'), 'WallBig')).toBe(false);
+  });
+
+  it('is case-sensitive (per XSD/IDS spec)', () => {
+    expect(matchConstraint(pat('IFCWALL'), 'IfcWall')).toBe(false);
+    expect(matchConstraint(pat('ifcwall'), 'IFCWALL')).toBe(false);
+    expect(matchConstraint(pat('IFCWALL'), 'IFCWALL')).toBe(true);
+    expect(matchConstraint(pat('IfcWall'), 'IfcWall')).toBe(true);
+  });
+
+  it('converts XSD \\i to initial name char class (Unicode letters)', () => {
+    // \i matches [\p{L}_:]
+    expect(matchConstraint(pat('\\i.*'), 'abc')).toBe(true);
+    expect(matchConstraint(pat('\\i.*'), '_test')).toBe(true);
+    expect(matchConstraint(pat('\\i.*'), 'Ölaf')).toBe(true); // non-ASCII letter
+    expect(matchConstraint(pat('\\i.*'), '9abc')).toBe(false); // digit can't start
+  });
+
+  it('converts XSD \\c to name char class', () => {
+    // \c matches [\p{L}\p{Nd}_:.-…]
+    expect(matchConstraint(pat('\\c+'), 'a.b-c:1')).toBe(true);
+    expect(matchConstraint(pat('\\c+'), 'a b')).toBe(false); // space is not a name char
+  });
+
+  it('matches XSD \\p{...} unicode categories with full fidelity', () => {
+    // Regression: the old translator collapsed every \p{...} to `.`, so
+    // a letter class wrongly matched digits/punctuation. With the `u`
+    // flag the property escapes are honoured exactly.
+    expect(matchConstraint(pat('\\p{L}+'), 'hello')).toBe(true);
+    expect(matchConstraint(pat('\\p{L}+'), 'café')).toBe(true);
+    expect(matchConstraint(pat('\\p{L}+'), '123')).toBe(false);
+    expect(matchConstraint(pat('\\p{L}+'), 'ab12')).toBe(false);
+    expect(matchConstraint(pat('\\p{Nd}+'), '123')).toBe(true);
+    expect(matchConstraint(pat('\\p{Nd}+'), 'abc')).toBe(false);
+  });
+
+  it('treats XSD \\d / \\w as Unicode classes (not ASCII-only)', () => {
+    expect(matchConstraint(pat('\\d+'), '42')).toBe(true);
+    expect(matchConstraint(pat('\\d+'), '4.2')).toBe(false); // dot is not a digit
+    expect(matchConstraint(pat('\\w+'), 'abc123')).toBe(true);
+    expect(matchConstraint(pat('\\w+'), 'a b')).toBe(false); // space is not \w
+  });
+
+  it('handles multi-char escapes inside character classes', () => {
+    // [\w] / [\d] / [\i] must compile and match, not reject every value.
+    expect(matchConstraint(pat('[\\w]+'), 'abc123')).toBe(true);
+    expect(matchConstraint(pat('[\\w]+'), 'a b')).toBe(false);
+    expect(matchConstraint(pat('[\\d]+'), '42')).toBe(true);
+    expect(matchConstraint(pat('[\\d]+'), '4a')).toBe(false);
+    expect(matchConstraint(pat('[\\i][\\c]*'), 'Name_1')).toBe(true);
+  });
+
+  it('does not reject valid values for XSD block escapes JS cannot model', () => {
+    // `\p{IsBasicLatin}` has no JS equivalent; approximate permissively
+    // (as the legacy `.` did) rather than failing every value.
+    expect(matchConstraint(pat('\\p{IsBasicLatin}+'), 'A')).toBe(true);
+    expect(matchConstraint(pat('\\p{IsBasicLatin}+'), 'Hello')).toBe(true);
+  });
+
+  it('anchors top-level alternation across the whole value', () => {
+    // `^a|b$` would match a left-anchored "a" or right-anchored "b";
+    // the matcher wraps the pattern so the alternation spans the value.
+    expect(matchConstraint(pat('foo|bar'), 'foo')).toBe(true);
+    expect(matchConstraint(pat('foo|bar'), 'bar')).toBe(true);
+    expect(matchConstraint(pat('foo|bar'), 'foobar')).toBe(false);
+    expect(matchConstraint(pat('foo|bar'), 'xbar')).toBe(false);
+  });
+
+  it('returns false for invalid regex', () => {
+    // Unbalanced brackets should not throw, just return false
+    expect(matchConstraint(pat('[invalid'), 'test')).toBe(false);
+  });
+
+  it('matches the textual form of a numeric value under a numeric base', () => {
+    // xs:pattern constrains the lexical space of its base type, so a
+    // numeric value is matched via its string form — same as the IDS
+    // reference (re.fullmatch(pattern, str(value))).
+    expect(matchConstraint(patB('[0-9]+\\.?[0-9]*', 'xs:double'), 3.14)).toBe(true);
+    expect(matchConstraint(pat('[0-9]+\\.?[0-9]*'), '3.14')).toBe(true);
+    // A textual form that doesn't match still fails.
+    expect(matchConstraint(pat('[0-9]+'), 'abc')).toBe(false);
+  });
+
+  it('treats "^.*$" on a decimal as "any value present" (regression #1097)', () => {
+    // <restriction base="xs:decimal"><pattern value="^.*$"/> is the IDS
+    // idiom for "the property must be present with any decimal value".
+    // It must accept numeric property values, not reject them outright.
+    expect(matchConstraint(patB('^.*$', 'xs:decimal'), 42.5)).toBe(true);
+    expect(matchConstraint(patB('^.*$', 'xs:decimal'), 0)).toBe(true);
+    expect(matchConstraint(patB('^.*$', 'xs:boolean'), true)).toBe(true);
+    expect(matchConstraint(patB('^.*$', 'xs:string'), 'anything')).toBe(true);
+  });
+
+  it('requires the runtime value type to match the restriction base', () => {
+    // A number under an xs:string base is a type mismatch — buildingSMART's
+    // corpus encodes this as `patterns_always_fail_on_any_number`.
+    expect(matchConstraint(patB('.*', 'xs:string'), 42)).toBe(false);
+    // A boolean under a numeric base is likewise a mismatch.
+    expect(matchConstraint(patB('^.*$', 'xs:decimal'), true)).toBe(false);
+    // A number under a numeric base is accepted (prefix-agnostic base).
+    expect(matchConstraint(patB('[0-9]+', 'xsd:integer'), 42)).toBe(true);
+    // No declared base: numeric/boolean actuals can't be type-checked, so
+    // they fail rather than producing a false pass.
+    expect(matchConstraint(pat('^.*$'), 42.5)).toBe(false);
+  });
+});
+
+// ============================================================================
+// matchConstraint — Enumeration
+// ============================================================================
+
+describe('matchConstraint — enumeration', () => {
+  const enumC = (values: string[]): IDSEnumerationConstraint => ({
+    type: 'enumeration',
+    values,
+  });
+
+  it('matches single value', () => {
+    expect(matchConstraint(enumC(['IFCWALL']), 'IFCWALL')).toBe(true);
+  });
+
+  it('matches one of multiple values', () => {
+    const c = enumC(['IFCWALL', 'IFCSLAB', 'IFCBEAM']);
+    expect(matchConstraint(c, 'IFCSLAB')).toBe(true);
+    expect(matchConstraint(c, 'IFCCOLUMN')).toBe(false);
+  });
+
+  it('is case-sensitive by default', () => {
+    expect(matchConstraint(enumC(['IFCWALL']), 'IfcWall')).toBe(false);
+    expect(matchConstraint(enumC(['IfcWall']), 'IFCWALL')).toBe(false);
+  });
+
+  it('matches case-insensitively when option is set', () => {
+    const ci = { caseInsensitive: true };
+    expect(matchConstraint(enumC(['IFCWALL']), 'IfcWall', ci)).toBe(true);
+    expect(matchConstraint(enumC(['IfcWall']), 'IFCWALL', ci)).toBe(true);
+  });
+
+  it('matches numeric values with tolerance', () => {
+    expect(matchConstraint(enumC(['3.14', '2.71']), 3.14)).toBe(true);
+    expect(matchConstraint(enumC(['3.14', '2.71']), 2.7100005)).toBe(true);
+    expect(matchConstraint(enumC(['3.14', '2.71']), 9.99)).toBe(false);
+  });
+
+  it('returns false when nothing matches', () => {
+    expect(matchConstraint(enumC(['A', 'B', 'C']), 'D')).toBe(false);
+  });
+
+});
+
+// ============================================================================
+// matchConstraint — Bounds
+// ============================================================================
+
+describe('matchConstraint — bounds', () => {
+  const bounds = (
+    opts: Partial<IDSBoundsConstraint>
+  ): IDSBoundsConstraint => ({
+    type: 'bounds',
+    ...opts,
+  });
+
+  it('minExclusive — fails at exact boundary', () => {
+    expect(matchConstraint(bounds({ minExclusive: 10 }), 10)).toBe(false);
+  });
+
+  it('minExclusive — passes above boundary', () => {
+    expect(matchConstraint(bounds({ minExclusive: 10 }), 10.001)).toBe(true);
+  });
+
+  it('maxExclusive — fails at exact boundary', () => {
+    expect(matchConstraint(bounds({ maxExclusive: 100 }), 100)).toBe(false);
+  });
+
+  it('maxExclusive — passes below boundary', () => {
+    expect(matchConstraint(bounds({ maxExclusive: 100 }), 99.999)).toBe(true);
+  });
+
+  it('combined minInclusive + maxInclusive range', () => {
+    const c = bounds({ minInclusive: 0, maxInclusive: 100 });
+    expect(matchConstraint(c, 0)).toBe(true);
+    expect(matchConstraint(c, 50)).toBe(true);
+    expect(matchConstraint(c, 100)).toBe(true);
+    expect(matchConstraint(c, -1)).toBe(false);
+    expect(matchConstraint(c, 101)).toBe(false);
+  });
+
+  it('combined minExclusive + maxExclusive range', () => {
+    const c = bounds({ minExclusive: 0, maxExclusive: 100 });
+    expect(matchConstraint(c, 0)).toBe(false);
+    expect(matchConstraint(c, 50)).toBe(true);
+    expect(matchConstraint(c, 100)).toBe(false);
+  });
+
+  it('returns false for non-numeric actual value', () => {
+    expect(matchConstraint(bounds({ minInclusive: 0 }), 'abc')).toBe(false);
+  });
+
+  it('parses string numbers', () => {
+    expect(matchConstraint(bounds({ minInclusive: 0, maxInclusive: 100 }), '50')).toBe(true);
+  });
+
+  it('uses strict comparison at boundaries (no implicit tolerance)', () => {
+    // Per upstream IfcOpenShell, bound checks compare strictly so a
+    // value just below `minInclusive` fails (mirrors fixture
+    // `tolerance/fail-comparison_tolerance_for_floating_point_range_greater_than_zero_inclusive`).
+    expect(matchConstraint(bounds({ minInclusive: 10 }), 10 - 0.5e-6)).toBe(false);
+    expect(matchConstraint(bounds({ minInclusive: 10 }), 10 - 2e-5)).toBe(false);
+    expect(matchConstraint(bounds({ minInclusive: 10 }), 10)).toBe(true);
+  });
+
+  it('no bounds specified accepts any number', () => {
+    expect(matchConstraint(bounds({}), 999)).toBe(true);
+    expect(matchConstraint(bounds({}), -999)).toBe(true);
+  });
+});
+
+// ============================================================================
+// matchConstraint — unknown type
+// ============================================================================
+
+

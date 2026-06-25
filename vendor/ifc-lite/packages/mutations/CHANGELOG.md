@@ -1,0 +1,510 @@
+# @ifc-lite/mutations
+
+## 1.16.0
+
+### Minor Changes
+
+- [#1234](https://github.com/LTplus-AG/ifc-lite/pull/1234) [`b6acbc4`](https://github.com/LTplus-AG/ifc-lite/commit/b6acbc4b84bcdb4a2d774515200d27edd7e831cb) Thanks [@louistrue](https://github.com/louistrue)! - Add entity retype (reassign class) to the mutation overlay.
+
+  `EntityTable` gains an additive `setTypeOverride(expressId, typeName | null)` so
+  a host (the viewer) can reflect a pending retype live in `getTypeName` /
+  `getTypeEnum` without rebuilding the table; the original columnar type is left
+  intact.
+
+  `StoreEditor.setEntityType(expressId, newType, { predefinedType? })` and
+  `MutablePropertyView.setEntityType(...)` change an entity's IFC class in place,
+  and a new `BulkAction { type: 'SET_ENTITY_TYPE', entityType, predefinedType? }`
+  applies it to a selection. `StepExporter` materializes the retype on export.
+
+  The entity keeps its expressId, so geometry, placement, representation and every
+  `IfcRel*` reference (all keyed by `#id`) carry over unchanged. Attributes are
+  re-laid-out by name against the target class's declared layout — dropping
+  attributes the target lacks (e.g. IFC2X3 `CompositionType`) and validating
+  `PredefinedType` against the target enum (an unknown override falls back to
+  `USERDEFINED` + `ObjectType`). This mirrors IfcOpenShell's
+  `ifcopenshell.util.schema.reassign_class`. Intended for compatible
+  reassignments such as the building-element subtypes that share the IfcElement
+  layout (`IfcBuildingElementProxy` ↔ `IfcColumn`/`IfcBeam`/`IfcMember`/
+  `IfcPlate`/`IfcWall`).
+
+### Patch Changes
+
+- Updated dependencies [[`b6acbc4`](https://github.com/LTplus-AG/ifc-lite/commit/b6acbc4b84bcdb4a2d774515200d27edd7e831cb)]:
+  - @ifc-lite/data@2.2.0
+
+## 1.15.5
+
+### Patch Changes
+
+- [#1149](https://github.com/LTplus-AG/ifc-lite/pull/1149) [`61bad47`](https://github.com/LTplus-AG/ifc-lite/commit/61bad47257196b766fb0b8a17c56e53b763ca34a) Thanks [@louistrue](https://github.com/louistrue)! - Treat a null/unset property value as present, not absent. A property may legitimately exist with no value (e.g. an IFC boolean added from bSDD, which now starts unset rather than defaulting to `false`), so `MutablePropertyView` no longer reads `value === null` as "property does not exist":
+
+  - `deleteProperty` keys absence off existence (in-session pset membership), so an unset property is still deletable instead of the trash button being a silent no-op.
+  - `setProperty` classifies a write as `UPDATE_PROPERTY` vs `CREATE_PROPERTY` by whether the property already existed (not by null value), so undoing an edit to an unset property restores its prior unset state instead of deleting the whole property.
+
+- Updated dependencies [[`bfd9004`](https://github.com/LTplus-AG/ifc-lite/commit/bfd9004daa17f481a7b33b5c3c11f620e6cd894d), [`248f2c0`](https://github.com/LTplus-AG/ifc-lite/commit/248f2c09a4d61fa27dfeaba5511a2a641d4cd278), [`ddae2b0`](https://github.com/LTplus-AG/ifc-lite/commit/ddae2b0024f071d00f9e6e4b77e0be3965412ec3)]:
+  - @ifc-lite/data@2.1.0
+
+## 1.15.4
+
+### Patch Changes
+
+- [#1116](https://github.com/LTplus-AG/ifc-lite/pull/1116) [`49778b1`](https://github.com/LTplus-AG/ifc-lite/commit/49778b179826d46e1c96361fe7b557e42db4ecfe) Thanks [@louistrue](https://github.com/louistrue)! - Seed the overlay express-id watermark above deferred property atoms, not just `entityIndex.byId`.
+
+  On huge files the parser defers high-cardinality property atoms out of `byId` into `deferredEntityIndex` (`deferPropertyAtomIndex`). `StoreEditor.computeMaxExistingId()` scanned only `byId`, so a deferred atom sitting above the primary-index maximum could have its express id reused for a newly created overlay entity. With the export fix now emitting deferred atoms, that collision would surface as two `#ID=` definitions in the STEP output. The watermark (and the post-construction "store grew" guard) now span `deferredEntityIndex` too. Surfaced in review of the [#1110](https://github.com/LTplus-AG/ifc-lite/issues/1110) export fix.
+
+## 1.15.3
+
+### Patch Changes
+
+- [#1036](https://github.com/LTplus-AG/ifc-lite/pull/1036) [`0205c4d`](https://github.com/LTplus-AG/ifc-lite/commit/0205c4d50995572ef796ce66877aa389f19c6fbc) Thanks [@louistrue](https://github.com/louistrue)! - Add a `default` condition to every package's exports map. The maps only
+  declared `import` + `types`, so any resolver hitting the CJS/default
+  condition path (tsx, jest, plain `require`, some bundlers) failed with
+  ERR_PACKAGE_PATH_NOT_EXPORTED. The `default` entry points at the same
+  ESM dist file; pure ESM consumers are unaffected.
+- Updated dependencies [[`0205c4d`](https://github.com/LTplus-AG/ifc-lite/commit/0205c4d50995572ef796ce66877aa389f19c6fbc)]:
+  - @ifc-lite/data@2.0.2
+
+## 1.15.2
+
+### Patch Changes
+
+- [#946](https://github.com/LTplus-AG/ifc-lite/pull/946) [`6378998`](https://github.com/LTplus-AG/ifc-lite/commit/6378998ec146f7f9297ef5fcc5953b155fd6b5e0) Thanks [@louistrue](https://github.com/louistrue)! - Fix a batch of verified findings from a full-codebase review (security, correctness,
+  data-loss, and resource/memory leaks). Highlights:
+
+  **Security**
+
+  - collab-server: a malformed WebSocket frame no longer crashes the whole process
+    (decode is wrapped; a bad frame is rejected/audited instead of throwing).
+  - mcp: the local HTTP transport now validates `Host`/`Origin` and no longer sends a
+    wildcard `Access-Control-Allow-Origin`, closing a DNS-rebinding/CSRF hole; the
+    `AuthScope.modelIds` allowlist is now enforced at model resolution.
+  - server-bin: `extractZip` uses `execFileSync` (argv, no shell), removing command
+    injection via archive/destination paths.
+  - export / sdk / cli / mcp / lists / viewer CSV exporters now neutralize spreadsheet
+    formula injection (CWE-1236) consistently.
+  - create-ifc-lite: validates the project name (no path traversal) and drops the
+    unused `execSync`-based downloader.
+  - embed-sdk: inbound `postMessage` now validates `event.origin`.
+
+  **Correctness / data-loss**
+
+  - parser: `lengthUnitScale` survives the worker transport; the nested STEP list
+    parser is string-aware (commas/parens inside quoted values no longer mis-split).
+  - mutations: deleting a property from a session-created pset and replaying
+    `UPDATE_ATTRIBUTE` / `CREATE_PROPERTY_SET` mutations now work.
+  - export: merged-export ID remapping no longer rewrites `#N` inside quoted strings.
+  - drawing-2d: GPU section cutter triangle upload/readback use correct WGSL std-layout
+    offsets and strides.
+  - ifcx: cyclic children no longer abort the parse; spatial children round-trip; the
+    mesh transform guards a zero/non-finite homogeneous `w`.
+  - data / cache: a `NULL` string property value stays `null` instead of becoming `""`.
+  - pointcloud, bcf, server-client, query, viewer-core, viewer store/federation: assorted
+    decoding, federation-id, and selection-state fixes.
+
+  **Resource / memory leaks**
+
+  - geometry, query (DuckDB), renderer (GPU buffers), collab (federation presence),
+    sandbox (host log capture + runtime), mcp (clash mesh cache), server-bin (signal
+    listeners), and the viewer renderer on unmount now release resources deterministically.
+
+  **Hardening (apps, not published)**
+
+  - server: a dedicated `server-release` Cargo profile (`panic = "unwind"`) plus a
+    `CatchPanicLayer` contain a malformed-IFC parse panic to the offending request
+    instead of aborting the whole server.
+  - desktop (Tauri): a Content-Security-Policy is set, and unused `shell:*` /
+    `fs:allow-write|mkdir|remove` capabilities (and the unused shell plugin) are removed.
+
+  **Second pass** (additional verified findings)
+
+  - collab-server: S3 log load now follows `ListObjectsV2` pagination (no dropped frames);
+    awareness frames are size-capped + rate-limited; path-lock verify runs after role/rate-limit;
+    the blob route requires auth and `/metrics` can be token-gated.
+  - server-bin: downloaded binaries are SHA-256 verified against a release sidecar (fail-closed on
+    mismatch, warn-if-absent for older releases).
+  - extensions: inner-ring capability check fails _closed_ for unknown namespaces; signing
+    canonicalization is now injective (length-prefixed).
+  - correctness/leaks: mutations quantity type+unit preserved on replay; `findByProperty` boolean
+    comparisons; Parquet REAL columns kept as Float64; blob GC fail-safe on missing `uploadedAt`;
+    spatial-hierarchy + codegen cycle guards; BVH NaN edge; bSDD/playground caches bounded;
+    point-cloud GPU asset freed on federation error; mcp `parseColor` rejects non-hex; bcf/SVG/STEP
+    output escaping; and more.
+
+- Updated dependencies [[`6378998`](https://github.com/LTplus-AG/ifc-lite/commit/6378998ec146f7f9297ef5fcc5953b155fd6b5e0)]:
+  - @ifc-lite/data@2.0.1
+
+## 1.15.1
+
+### Patch Changes
+
+- Updated dependencies [[`e73ac09`](https://github.com/LTplus-AG/ifc-lite/commit/e73ac0931b85cd299ae9b723073e956b6b124c85)]:
+  - @ifc-lite/data@2.0.0
+
+## 1.15.0
+
+### Minor Changes
+
+- [#598](https://github.com/louistrue/ifc-lite/pull/598) [`25c9877`](https://github.com/louistrue/ifc-lite/commit/25c9877969d2dcccb9c4e61f57b188cbf5fbbc3c) Thanks [@louistrue](https://github.com/louistrue)! - Auto Spaces — diagnostics, broader wall coverage, and a sweep of
+  review feedback.
+
+  **Auto Spaces detection.** The "no enclosed regions detected"
+  failure mode now surfaces actionable counts — both in devtools
+  and in the panel itself.
+
+  - `extract-walls.ts` now tries the standard `Axis` representation
+    (`IfcShapeRepresentation` with `RepresentationIdentifier='Axis'`,
+    `IfcPolyline` items) **before** falling back to the
+    `addWallToStore` rectangle-profile convention. That covers
+    walls authored by Revit / ArchiCAD / IfcOpenShell — the previous
+    extractor only handled walls placed via the Add Element tool.
+    The placement chain is read once and the polyline endpoints are
+    transformed through it, so rotated walls work.
+  - Every wall that gets dropped is recorded with a typed reason
+    (`no-axis-or-rect-profile`, `placement-not-resolvable`,
+    `zero-length-axis`, …) — the panel summarises them as
+    `"3× no-axis-or-rect-profile, 1× zero-length-axis"`.
+  - `detectEnclosedAreas` exposes a
+    `detectEnclosedAreasWithStats(...)` companion that returns
+    per-stage counts (vertices, edges-after-split, faces total,
+    outer / below-min-area drops, largest area). The intersection
+    splitter's iteration cap now scales with input size
+    (`max(100, segments * 10)`) so dense floor plans don't bail
+    out early.
+  - `generateSpacesFromWalls` always logs a `console.info`
+    one-liner and threads a new `debug?: boolean` flag down to the
+    extractor + detector for verbose tracing. The viewer's Auto
+    Spaces panel exposes a "Verbose console logging" checkbox.
+  - The Auto Spaces diagnostic block now shows the graph stats
+    (`123v / 456e / 78f`), the drop counts, and per-reason wall
+    skips. Two amber hints fire automatically when walls were
+    extracted but no faces formed (likely snap tolerance), or
+    when nothing extracted (likely an unsupported geometry shape).
+
+  **Review-feedback sweep (PR #598).**
+
+  - `addElementMeshes.linearBox()` and the SVG `linearBoxCorners`
+    helper honour each endpoint's Y so a sloped beam previews as
+    a sloped prism instead of being flattened to the start.
+  - `bridge-store.requireStoreyId` rejects `0` (EXPRESS ids are
+    1-based, `#0` is never valid).
+  - `addWindow` / `addDoor` `tsParamTypes` include
+    `UserDefinedPartitioningType` / `UserDefinedOperationType`
+    so typed sandbox callers can hit the IFC4 round-trip without
+    casts.
+  - `AnnotationLayer.resolveEntityType` no longer falls back to
+    `ifcDataStore` when the annotation's `modelId` is missing
+    from a federated `models` map (would resolve the wrong
+    entity in multi-model sessions). Single-model sessions keep
+    the fallback.
+  - `addDoorToStore` / `addWindowToStore` validate
+    `OperationType` / `PartitioningType` against the IFC4 enum
+    and re-route unknown values through
+    `.USERDEFINED.` + `User-defined…Type` so custom labels
+    round-trip cleanly.
+  - `addWallToStore` defaults `PredefinedType` to `.NOTDEFINED.`
+    (was `.STANDARD.`) to match the rest of the in-store
+    builders.
+  - `duplicateInStore` / `resolveDuplicateSource` allow
+    `OwnerHistory` to be `null` (IFC4 made it optional). The
+    duplicate emits a bare `$` token instead of `#null` for the
+    omitted case.
+  - `StoreEditor.addEntity` accepts an injected schema-aware
+    normalizer (`setEntityTypeNormalizer`); `@ifc-lite/sdk`
+    registers `normalizeIfcTypeName` + `isKnownType` at load
+    time so direct callers — CLI scripts, sandbox bridge,
+    unit tests — see registry-grade rejection of typos like
+    `IfcWal`, plus canonical PascalCase on `EntityRef.type`.
+
+- [#598](https://github.com/louistrue/ifc-lite/pull/598) [`25c9877`](https://github.com/louistrue/ifc-lite/commit/25c9877969d2dcccb9c4e61f57b188cbf5fbbc3c) Thanks [@louistrue](https://github.com/louistrue)! - Add the `bim.store.*` namespace — high-level editing of an already-parsed
+  `IfcDataStore` via the existing mutation overlay. Closes the merge-roundtrip
+  gap from #592 (you can edit `IfcRectangleProfileDef.XDim` or drop a fresh
+  `IfcColumn` into a model without round-tripping through a script + re-parse).
+
+  **`@ifc-lite/mutations`** — new `StoreEditor` facade plus four
+  `MutablePropertyView` extensions: positional-attribute mutations, overlay
+  entity creation/deletion (with watermark seeding), and three helpers used by
+  the viewer's undo/redo (`removePositionalMutation`, `restoreFromTombstone`,
+  `restoreNewEntity`).
+
+  **`@ifc-lite/create`** — new `in-store/` module: `addColumnToStore` builds a
+  12-entity IfcColumn sub-graph (placement, profile, extruded solid,
+  representation, product shape, rel-contained-in-spatial-structure) anchored
+  to a target `IfcBuildingStorey`. `resolveSpatialAnchor` walks the parsed
+  store to find the IfcOwnerHistory, the 'Body' representation context, and
+  the storey's local placement.
+
+  **`@ifc-lite/sdk`** — new `StoreNamespace` exposed as `bim.store` on
+  `BimContext`. Methods: `addEntity`, `removeEntity`, `setPositionalAttribute`,
+  `addColumn`. Backed by `StoreBackendMethods` on `BimBackend`; the
+  `RemoteBackend` proxy round-trips them through the transport.
+
+  **`@ifc-lite/sandbox`** — `bim.store.*` is bridged into the QuickJS sandbox
+  with full TypeScript types via `bim-globals.d.ts` and an LLM cheat sheet in
+  the system prompt. Gated on a new `store: true` permission (default
+  `false`, mirrors the existing `mutate` permission pattern).
+
+  **`@ifc-lite/cli`** — `HeadlessBackend.store` is now functional (was a
+  no-op before). Scripts run via the CLI can edit a parsed model and export it
+  with mutations applied.
+
+  **`@ifc-lite/viewer`** — three new UI surfaces:
+
+  - Raw STEP tab in `PropertiesPanel` — lists every positional STEP argument
+    with an inline pen-icon editor for scalar values (numbers, refs, enums,
+    null). Mutated rows show a purple dot and tinted background.
+  - `EntityContextMenu` gains "Delete entity" (red, calls `removeEntity`
+    with toast + undo support) and "Add column here…" (emerald, only enabled
+    when the right-clicked entity is an `IfcBuildingStorey`).
+  - `AddColumnDialog` modal — storey picker sorted by elevation, position
+    (storey-local metres), cross-section, height, name, optional collapsible
+    for Description/ObjectType/Tag. Anchor-resolution failures surface
+    inline, not as thrown exceptions.
+
+  Plus four new actions on `mutationSlice` (`setPositionalAttribute`,
+  `removeEntity`, `addColumn`, dialog open/close) backed by per-model
+  `StoreEditor` caches, with undo/redo wired for `UPDATE_POSITIONAL_ATTRIBUTE`,
+  `CREATE_ENTITY`, and `DELETE_ENTITY`.
+
+  **`@ifc-lite/parser`** — `package.json` `exports` re-ordered to put `types`
+  before `import` so downstream consumers using TS5 `nodenext` resolution
+  pick up the type declarations.
+
+  **`@ifc-lite/geometry`** — re-exports `MetadataBootstrapEntitySummary` and
+  `MetadataBootstrapSpatialNode` from the package index (used by viewer
+  desktop services).
+
+  **`@ifc-lite/renderer`** — `GPUBufferDescriptor` ambient declaration gains
+  `mappedAtCreation?: boolean`. Internal change; the renderer was already
+  using it at runtime to skip a Mojo IPC round-trip on Chrome/Dawn.
+
+- [#598](https://github.com/louistrue/ifc-lite/pull/598) [`25c9877`](https://github.com/louistrue/ifc-lite/commit/25c9877969d2dcccb9c4e61f57b188cbf5fbbc3c) Thanks [@louistrue](https://github.com/louistrue)! - Duplicate-from-selection — pick any IfcRoot product, hit `⌘D` (or
+  right-click → Duplicate), get a fully-functional clone. The
+  duplicate is a first-class entity in the property panel, exports
+  cleanly to STEP with all its property associations preserved, and
+  ships in 6 directional variants sized to the source's bounding box.
+
+  **`@ifc-lite/create`**
+
+  - New `duplicateInStore(editor, source, options)` pure builder.
+    Emits a fresh placement chain (`IfcCartesianPoint` →
+    `IfcAxis2Placement3D` → `IfcLocalPlacement`) plus the duplicate
+    `IfcRoot` with a new GUID and the source's `Representation`
+    reference reused (geometry shared). Optional fresh
+    `IfcRelContainedInSpatialStructure` anchors to the source's
+    storey. Offset is configurable via `options.offset` — the slice
+    sizes it to the source's bbox.
+  - New `resolveDuplicateSource(store, expressId)` walks the parsed
+    `IfcDataStore` for placement / parent / location / storey /
+    associations.
+  - New `SourceAssociation` shape captures one
+    `IfcRelDefines*` / `IfcRelAssociates*` edge that references
+    the source. The builder replays each one against the duplicate
+    so the exported STEP carries identical psets / qsets /
+    materials / classifications / documents / type binding —
+    without modifying any existing rel.
+  - Resolver scans the five association rel types
+    (`IFCRELDEFINESBYPROPERTIES`, `IFCRELDEFINESBYTYPE`,
+    `IFCRELASSOCIATESMATERIAL`, `…CLASSIFICATION`, `…DOCUMENT`)
+    by direct numeric membership in `RelatedObjects`.
+  - `DuplicateBuildResult.associationRelIds: number[]` exposes the
+    fresh rel ids for caller introspection.
+  - 7 unit tests in `duplicate.test.ts`: full graph emission,
+    custom offset, no-storey path, root-placement parent, attribute
+    count guard, association replay (3 rel types in one go), and
+    the no-associations case.
+
+  **`@ifc-lite/mutations`**
+
+  - New `setEntityAlias(overlayId, sourceId | null)` /
+    `getEntityAlias(id)` / `resolveBaseEntityId(id)` public surface
+    on `MutablePropertyView`. Aliases redirect base property and
+    quantity reads from the duplicate to its source — so the
+    duplicate inherits psets/qsets without eagerly cloning them
+    into the overlay.
+  - Override slots stay scoped to the original (overlay) id, so
+    edits on the duplicate don't bleed into the source. Verified
+    by 4 new unit tests including the source-untouched path,
+    chain-cap (one hop, not transitive), and the self-alias guard.
+
+  **`@ifc-lite/viewer`**
+
+  - New `duplicateEntity(modelId, sourceExpressId, direction?)`
+    slice action. Wraps the create-package builder, sets the
+    mutation-view alias, and clones the source's mesh data into
+    the geometry result with the offset applied — so the duplicate
+    appears in 3D the moment the action fires, not just in the
+    export overlay. Per-vertex `entityIds` arrays are filled with
+    the new globalId so picking and selection resolve correctly.
+  - New `DuplicateDirection` type (`+X` / `-X` / `+Y` / `-Y` /
+    `+Z` / `-Z`). Magnitude per axis = the source's bounding-box
+    dimension on that axis, so a 3m wall steps 3m and a 0.4m
+    column steps 0.4m. Falls back to a 1m step when the source
+    has no mesh in geometry.
+  - Right-click menu's "Duplicate" item is now a `DuplicateRow`:
+    primary clickable label on the left (defaults to +X), 6 axis
+    chips on the right (→ ← ↗ ↙ ↑ ↓). Tooltips spell out
+    "+X (east)" through "−Z (down)".
+  - `⌘D` defaults to +X. `⇧⌘D` = +Z (up), `⌥⌘D` = +Y (north) —
+    modifier shortcuts for power users without forcing a mouse
+    trip to the chip row. Selection moves to the new globalId so
+    a Cmd+D chain ("stamp a row of columns") works without
+    re-clicking.
+  - **`resolveGlobalIdFromModels` two-pass overlay fallback** —
+    the federation resolver previously gated each model's id range
+    at parse-time `maxExpressId`, which excluded every
+    overlay-allocated id from selection. The fix: a second pass
+    consults each model's mutation view via `getNewEntity(localId)`
+    so overlay duplicates resolve to the right model with the
+    right local id. Without this, the property panel saw the
+    duplicate as "UNKNOWN / Unknown / no property sets" because
+    the alias couldn't take effect on a wrongly-resolved id.
+  - PropertiesPanel falls back to the overlay `NewEntity` record
+    for type / name / GUID / Description / ObjectType when the
+    parsed `entityNode` comes up empty. The bSDD attribute list
+    synthesises from the schema-defined positional names. The
+    Materials / Classifications / Documents / structural
+    Relationships sections all route through a new
+    `lookupExpressId` (alias-resolved) so they query the source's
+    parsed maps directly.
+
+  After: a freshly-duplicated wall is genuinely first-class — name
+  reads, properties show, quantities show, material layers show,
+  classifications show, documents show, and a round-tripped STEP
+  file carries every association.
+
+## 1.14.5
+
+### Patch Changes
+
+- [#494](https://github.com/louistrue/ifc-lite/pull/494) [`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5) Thanks [@louistrue](https://github.com/louistrue)! - Remove recursive package `prebuild` hooks and run TypeScript via `pnpm exec` so workspace builds resolve correctly on Windows.
+
+- Updated dependencies [[`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5)]:
+  - @ifc-lite/data@1.15.1
+
+## 1.14.4
+
+### Patch Changes
+
+- [#461](https://github.com/louistrue/ifc-lite/pull/461) [`6ce40dd`](https://github.com/louistrue/ifc-lite/commit/6ce40ddb0cace5f83c2438d2d4c4bd47703468f7) Thanks [@louistrue](https://github.com/louistrue)! - Clean up package build health for georeferencing work by fixing parser generation issues, making export tests resolve workspace packages reliably, removing build scripts that masked TypeScript failures, tightening workspace test/build scripts, productizing CLI LOD generation, centralizing IFC GUID utilities in encoding, and adding mutation test coverage for property editing flows.
+
+- Updated dependencies [[`6ce40dd`](https://github.com/louistrue/ifc-lite/commit/6ce40ddb0cace5f83c2438d2d4c4bd47703468f7), [`6ce40dd`](https://github.com/louistrue/ifc-lite/commit/6ce40ddb0cace5f83c2438d2d4c4bd47703468f7)]:
+  - @ifc-lite/data@1.15.0
+
+## 1.14.3
+
+### Patch Changes
+
+- [#330](https://github.com/louistrue/ifc-lite/pull/330) [`07851b2`](https://github.com/louistrue/ifc-lite/commit/07851b2161b4cfcaa2dfc1b0f31a6fcc2db99e45) Thanks [@louistrue](https://github.com/louistrue)! - Remove the unused `@ifc-lite/parser` runtime dependency from `@ifc-lite/mutations`, switch `@ifc-lite/server-bin` postinstall to a safe ESM dynamic import, and refresh the published `@ifc-lite/wasm` bindings and binary so the npm package stays in sync with the current Rust sources.
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.3
+
+## 1.14.2
+
+### Patch Changes
+
+- Updated dependencies [[`740f7a7`](https://github.com/louistrue/ifc-lite/commit/740f7a7228413657d13014565d9e457f0e00e8a3)]:
+  - @ifc-lite/parser@1.14.2
+  - @ifc-lite/data@1.14.2
+
+## 1.14.1
+
+### Patch Changes
+
+- Updated dependencies [[`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607)]:
+  - @ifc-lite/parser@1.14.1
+  - @ifc-lite/data@1.14.1
+
+## 1.14.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.0
+  - @ifc-lite/parser@1.14.0
+
+## 1.13.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.13.0
+  - @ifc-lite/parser@1.13.0
+
+## 1.12.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.12.0
+  - @ifc-lite/parser@1.12.0
+
+## 1.11.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.3
+  - @ifc-lite/parser@1.11.3
+
+## 1.11.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/parser@1.11.1
+
+## 1.11.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.0
+  - @ifc-lite/parser@1.11.0
+
+## 1.10.0
+
+### Patch Changes
+
+- Updated dependencies [[`3823bd0`](https://github.com/louistrue/ifc-lite/commit/3823bd03bb0b5165d811cfd1ddfed671b8af97d8)]:
+  - @ifc-lite/data@1.10.0
+  - @ifc-lite/parser@1.10.0
+
+## 1.9.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.9.0
+  - @ifc-lite/parser@1.9.0
+
+## 1.8.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.8.0
+  - @ifc-lite/parser@1.8.0
+
+## 1.7.0
+
+### Patch Changes
+
+- Updated dependencies [[`e0af898`](https://github.com/louistrue/ifc-lite/commit/e0af898608c2f706dc2d82154c612c64e2de010c), [`6c43c70`](https://github.com/louistrue/ifc-lite/commit/6c43c707ead13fc482ec367cb08d847b444a484a)]:
+  - @ifc-lite/parser@1.7.0
+  - @ifc-lite/data@1.7.0
+
+## 1.4.0
+
+### Minor Changes
+
+- Initial release of drawing-2d and mutations packages
+
+  - @ifc-lite/drawing-2d: 2D architectural drawing generation (section cuts, floor plans, elevations)
+  - @ifc-lite/mutations: Mutation tracking and property editing for IFC models
+
+### Patch Changes
+
+- Updated dependencies [0191843]
+  - @ifc-lite/parser@1.4.0

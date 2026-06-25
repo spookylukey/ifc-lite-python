@@ -1,0 +1,28 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+[package]
+name = "ifc-lite-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "C FFI bindings for ifc-lite — native DLL for in-process IFC parsing"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Carry an explicit `version` alongside `path` so the crate is publishable to
+# crates.io: `cargo publish` strips the path and keeps the version requirement.
+# A path-only dep fails publish ("dependency does not specify a version").
+# `scripts/sync-versions.js` keeps this literal aligned with the workspace
+# version on every `changeset version` bump.
+ifc-lite-processing = { version = "4.1.0", path = "../processing" }
+rayon = "1.10"
+serde_json = "1.0"
+
+[lints]
+workspace = true
