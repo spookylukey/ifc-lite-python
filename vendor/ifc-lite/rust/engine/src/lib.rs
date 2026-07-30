@@ -7,13 +7,7 @@
 //! This crate exposes a small API surface that desktop/native hosts can depend on
 //! without needing to know about WASM bindings or Tauri command shapes.
 
-use ifc_lite_processing::{
-    process_geometry, process_geometry_filtered,
-    process_geometry_streaming_filtered_with_options,
-    process_geometry_streaming_with_options_and_bootstrap,
-    CoordinateInfo, ModelMetadata, ProcessingResult, ProcessingStats,
-    StreamingOptions as ProcessingStreamingOptions,
-};
+use ifc_lite_processing::{process_geometry, process_geometry_filtered, process_geometry_streaming_filtered_with_options, process_geometry_streaming_with_options_and_bootstrap, CoordinateInfo, ModelMetadata, ProcessingResult, ProcessingStats, StreamingOptions as ProcessingStreamingOptions, TessellationQuality};
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io, path::Path, str::Utf8Error};
@@ -127,6 +121,7 @@ pub fn process_ifc_text_with_options(
     opening_filter: OpeningFilterMode,
     include_properties: bool,
     include_geometry: bool,
+    tessellation_quality: TessellationQuality,
 ) -> EngineResult {
     process_geometry_streaming_filtered_with_options(
         content.as_bytes(),
@@ -136,6 +131,7 @@ pub fn process_ifc_text_with_options(
             throughput_batch_size: usize::MAX,
             include_properties,
             include_geometry,
+            tessellation_quality,
             ..ProcessingStreamingOptions::default()
         },
         |_, _, _| {},
@@ -151,6 +147,7 @@ pub fn process_ifc_file_with_options(
     opening_filter: OpeningFilterMode,
     include_properties: bool,
     include_geometry: bool,
+    tessellation_quality: TessellationQuality,
 ) -> io::Result<EngineResult> {
     let mmap = map_ifc_file(path.as_ref())?;
     let content = std::str::from_utf8(&mmap)
@@ -160,6 +157,7 @@ pub fn process_ifc_file_with_options(
         opening_filter,
         include_properties,
         include_geometry,
+        tessellation_quality,
     ))
 }
 
