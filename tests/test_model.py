@@ -14,6 +14,7 @@ from ifc_lite._core import (
     ProcessingStats,
     PropertySet,
     PropertyValue,
+    TessellationQuality,
 )
 
 
@@ -333,3 +334,19 @@ def test_load_both_false_still_has_metadata(medium_ifc_path: Path) -> None:
     assert model.metadata.schema_version == "IFC4"
     assert model.metadata.entity_count > 0
     assert isinstance(model.stats, ProcessingStats)
+
+
+def test_tessellation_quality(l_bar_ifc_path: Path) -> None:
+    vertex_counts = []
+    for quality in range(5):
+        tessellation_quality = TessellationQuality(quality)
+        model = ifc_lite.process_file(
+            l_bar_ifc_path, load_geometry=True, tessellation_quality=tessellation_quality
+        )
+        vertex_counts.append(model.meshes[0].vertex_count)
+
+    prev_vertex_count = None
+    for vertex_count in vertex_counts:
+        if prev_vertex_count is not None:
+            assert vertex_count > prev_vertex_count
+        prev_vertex_count = vertex_count

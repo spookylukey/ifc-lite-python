@@ -29,6 +29,15 @@ def small_ifc_path() -> Path:
 
 
 @pytest.fixture
+def l_bar_ifc_path() -> Path:
+    """An IFC4 file for a simple L-shaped IFCReinforcingBar."""
+    p = FIXTURES_DIR / "L-BAR.ifc"
+    if not p.exists():
+        pytest.skip(f"{p.name} not found in fixtures")
+    return p
+
+
+@pytest.fixture
 def medium_ifc_path() -> Path:
     """A medium IFC4 file with walls, doors, windows, and openings."""
     p = FIXTURES_DIR / "project0-openings.ifc"
