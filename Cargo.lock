@@ -371,6 +371,7 @@ name = "ifc-lite-python"
 version = "0.1.0"
 dependencies = [
  "ifc-lite-engine",
+ "ifc-lite-geometry",
  "pyo3",
 ]
 

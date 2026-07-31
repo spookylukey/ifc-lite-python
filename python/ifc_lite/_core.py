@@ -18,6 +18,16 @@ class OpeningFilterMode(enum.IntEnum):
     IGNORE_OPAQUE = 2
 
 
+class TessellationQuality(enum.IntEnum):
+    """The quality of tessellation for geometry processing."""
+
+    LOWEST = 0
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+    HIGHEST = 4
+
+
 @dataclass
 class PropertyValue:
     """A single property within a property set."""
@@ -167,6 +177,7 @@ class IfcModel:
         opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
         load_geometry: bool = True,
         load_properties: bool = True,
+        tessellation_quality: TessellationQuality = TessellationQuality.MEDIUM,
     ) -> IfcModel:
         """Load and process an IFC file from disk.
 
@@ -177,12 +188,15 @@ class IfcModel:
                 will have empty positions/normals/indices but full metadata.
             load_properties: If False, skip property set parsing. MeshData
                 elements will have properties=None and property_sets=None.
+            tessellation_quality: The resolution of how the element is approximated
+                to a faceted mesh.
         """
         if opening_filter == OpeningFilterMode.DEFAULT:
             raw = _native.process_file(
                 str(path),
                 include_properties=load_properties,
                 include_geometry=load_geometry,
+                tessellation_quality=tessellation_quality,
             )
         else:
             content = Path(path).read_text(encoding="utf-8", errors="replace")
@@ -191,6 +205,7 @@ class IfcModel:
                 int(opening_filter),
                 include_properties=load_properties,
                 include_geometry=load_geometry,
+                tessellation_quality=tessellation_quality,
             )
         return cls._from_raw(raw)
 
@@ -202,6 +217,7 @@ class IfcModel:
         opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
         load_geometry: bool = True,
         load_properties: bool = True,
+        tessellation_quality: TessellationQuality = TessellationQuality.MEDIUM,
     ) -> IfcModel:
         """Load and process IFC content from a string.
 
@@ -212,12 +228,15 @@ class IfcModel:
                 will have empty positions/normals/indices but full metadata.
             load_properties: If False, skip property set parsing. MeshData
                 elements will have properties=None and property_sets=None.
+            tessellation_quality: The resolution of how the element is approximated
+                to a faceted mesh.
         """
         if opening_filter == OpeningFilterMode.DEFAULT:
             raw = _native.process_text(
                 content,
                 include_properties=load_properties,
                 include_geometry=load_geometry,
+                tessellation_quality=tessellation_quality,
             )
         else:
             raw = _native.process_text_filtered(
@@ -225,6 +244,7 @@ class IfcModel:
                 int(opening_filter),
                 include_properties=load_properties,
                 include_geometry=load_geometry,
+                tessellation_quality=tessellation_quality,
             )
         return cls._from_raw(raw)
 
@@ -302,6 +322,7 @@ def process_file(
     opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
     load_geometry: bool = True,
     load_properties: bool = True,
+    tessellation_quality: TessellationQuality = TessellationQuality.MEDIUM,
 ) -> IfcModel:
     """Load and process an IFC file. Convenience alias for IfcModel.from_file."""
     return IfcModel.from_file(
@@ -309,6 +330,7 @@ def process_file(
         opening_filter=opening_filter,
         load_geometry=load_geometry,
         load_properties=load_properties,
+        tessellation_quality=tessellation_quality,
     )
 
 
@@ -318,6 +340,7 @@ def process_text(
     opening_filter: OpeningFilterMode = OpeningFilterMode.DEFAULT,
     load_geometry: bool = True,
     load_properties: bool = True,
+    tessellation_quality: TessellationQuality = TessellationQuality.MEDIUM,
 ) -> IfcModel:
     """Process IFC text content. Convenience alias for IfcModel.from_text."""
     return IfcModel.from_text(
@@ -325,6 +348,7 @@ def process_text(
         opening_filter=opening_filter,
         load_geometry=load_geometry,
         load_properties=load_properties,
+        tessellation_quality=tessellation_quality,
     )
 
 

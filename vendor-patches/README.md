@@ -166,3 +166,11 @@ crate.
   `process_geometry_streaming_filtered_with_options`
 - `rust/engine/src/lib.rs` — adds `include_geometry` to `StreamOptions`,
   adds `process_ifc_text_with_options` / `process_ifc_file_with_options`
+
+### 003-vendor-add-include-tessellation-quality
+
+**Purpose**: Allow configuring of the tessellation quality when outputting 
+elements as faceted meshes.
+
+Adds `tessellation_quality` as an option to `process_ifc_text_with_options`,
+with values from 0-4 (lowest-highest) for quality.

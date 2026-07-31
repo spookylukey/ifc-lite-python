@@ -5,10 +5,10 @@ use ifc_lite_engine::{
     process_ifc_text_with_options,
     EngineResult, MeshData, OpeningFilterMode,
 };
+use ifc_lite_geometry::TessellationQuality;
 use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-
 // ─── Helper: convert MeshData → Python dict ───────────────────────────────
 
 fn mesh_to_pydict(py: Python<'_>, m: &MeshData) -> PyResult<Py<PyDict>> {
@@ -118,14 +118,16 @@ fn result_to_pydict(py: Python<'_>, r: &EngineResult) -> PyResult<Py<PyDict>> {
 
 /// Process an IFC file from disk. Returns a dict with meshes, metadata, stats.
 #[pyfunction]
-#[pyo3(signature = (path, /, include_properties=true, include_geometry=true))]
+#[pyo3(signature = (path, /, include_properties=true, include_geometry=true, tessellation_quality=2)
+)]
 fn process_file(
     py: Python<'_>,
     path: &str,
     include_properties: bool,
     include_geometry: bool,
+    tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
-    let result = if include_properties && include_geometry {
+    let result = if include_properties && include_geometry && tessellation_quality == 2 {
         process_ifc_file(path).map_err(|e| PyIOError::new_err(e.to_string()))?
     } else {
         process_ifc_file_with_options(
@@ -133,22 +135,25 @@ fn process_file(
             OpeningFilterMode::Default,
             include_properties,
             include_geometry,
+            TessellationQuality::from_index(tessellation_quality),
         )
-        .map_err(|e| PyIOError::new_err(e.to_string()))?
+            .map_err(|e| PyIOError::new_err(e.to_string()))?
     };
     result_to_pydict(py, &result)
 }
 
 /// Process IFC content from a string. Returns a dict with meshes, metadata, stats.
 #[pyfunction]
-#[pyo3(signature = (content, /, include_properties=true, include_geometry=true))]
+#[pyo3(signature = (content, /, include_properties=true, include_geometry=true, tessellation_quality=2)
+)]
 fn process_text(
     py: Python<'_>,
     content: &str,
     include_properties: bool,
     include_geometry: bool,
+    tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
-    let result = if include_properties && include_geometry {
+    let result = if include_properties && include_geometry && tessellation_quality == 2 {
         process_ifc_text(content)
     } else {
         process_ifc_text_with_options(
@@ -156,6 +161,7 @@ fn process_text(
             OpeningFilterMode::Default,
             include_properties,
             include_geometry,
+            TessellationQuality::from_index(tessellation_quality),
         )
     };
     result_to_pydict(py, &result)
@@ -164,13 +170,15 @@ fn process_text(
 /// Process IFC content with an opening filter mode.
 /// filter_mode: 0 = Default, 1 = IgnoreAll, 2 = IgnoreOpaque
 #[pyfunction]
-#[pyo3(signature = (content, filter_mode, /, include_properties=true, include_geometry=true))]
+#[pyo3(signature = (content, filter_mode, /, include_properties=true, include_geometry=true, tessellation_quality=2)
+)]
 fn process_text_filtered(
     py: Python<'_>,
     content: &str,
     filter_mode: u8,
     include_properties: bool,
     include_geometry: bool,
+    tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
     let mode = match filter_mode {
         0 => OpeningFilterMode::Default,
@@ -187,6 +195,7 @@ fn process_text_filtered(
         mode,
         include_properties,
         include_geometry,
+        TessellationQuality::from_index(tessellation_quality),
     );
     result_to_pydict(py, &result)
 }
