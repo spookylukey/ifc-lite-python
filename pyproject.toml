@@ -15,6 +15,10 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.urls]
+Repository = "https://github.com/spookylukey/ifc-lite-python/"
+
+
 [project.optional-dependencies]
 dev = [
     "pytest",
