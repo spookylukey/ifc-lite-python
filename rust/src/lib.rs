@@ -127,7 +127,8 @@ fn process_file(
     include_geometry: bool,
     tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
-    let result = if include_properties && include_geometry && tessellation_quality == 2 {
+    let tessellation_quality = TessellationQuality::from_index(tessellation_quality);
+    let result = if include_properties && include_geometry && tessellation_quality == TessellationQuality::Medium {
         process_ifc_file(path).map_err(|e| PyIOError::new_err(e.to_string()))?
     } else {
         process_ifc_file_with_options(
@@ -135,7 +136,7 @@ fn process_file(
             OpeningFilterMode::Default,
             include_properties,
             include_geometry,
-            TessellationQuality::from_index(tessellation_quality),
+            tessellation_quality,
         )
             .map_err(|e| PyIOError::new_err(e.to_string()))?
     };
@@ -153,7 +154,8 @@ fn process_text(
     include_geometry: bool,
     tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
-    let result = if include_properties && include_geometry && tessellation_quality == 2 {
+    let tessellation_quality = TessellationQuality::from_index(tessellation_quality);
+    let result = if include_properties && include_geometry && tessellation_quality == TessellationQuality::Medium {
         process_ifc_text(content)
     } else {
         process_ifc_text_with_options(
@@ -161,7 +163,7 @@ fn process_text(
             OpeningFilterMode::Default,
             include_properties,
             include_geometry,
-            TessellationQuality::from_index(tessellation_quality),
+            tessellation_quality,
         )
     };
     result_to_pydict(py, &result)
@@ -180,6 +182,7 @@ fn process_text_filtered(
     include_geometry: bool,
     tessellation_quality: u8,
 ) -> PyResult<Py<PyDict>> {
+    let tessellation_quality = TessellationQuality::from_index(tessellation_quality);
     let mode = match filter_mode {
         0 => OpeningFilterMode::Default,
         1 => OpeningFilterMode::IgnoreAll,
@@ -195,7 +198,7 @@ fn process_text_filtered(
         mode,
         include_properties,
         include_geometry,
-        TessellationQuality::from_index(tessellation_quality),
+        tessellation_quality,
     );
     result_to_pydict(py, &result)
 }
